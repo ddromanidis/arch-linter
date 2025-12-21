@@ -1,0 +1,15 @@
+# https://taskfile.dev
+
+version: '3'
+
+tasks:
+  default:
+    cmds:
+      - task: build
+    silent: true
+
+  build: go build -o arch-linter .
+
+  gen:cli:
+    cmds:
+      - cobra-cli --config .cobra.yaml add $FILE

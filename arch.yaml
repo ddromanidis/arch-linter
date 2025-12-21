@@ -1,0 +1,36 @@
+version: 1
+
+global:
+  # Rules for what modules can IMPORT
+  imports:
+    allow:
+      - "fmt"
+      - "errors"
+      - "context"
+    deny:
+      - "unsafe"
+      - "reflect"
+
+  # Rules for what types can be EXPORTED (returned/accepted in public functions)
+  exports:
+    allow:
+      - "time"    # It's fine to return time.Time anywhere
+      - "context" # It's fine to accept context.Context anywhere
+      - "fmt"     # It's fine to implement fmt.Stringer
+    deny: []
+
+modules:
+  - name: logger
+    path: "internal/logger"
+    description: "Logger"
+    imports: ["os", "log/slog"]
+    exports: []
+
+  - name: pipeline
+    path: "internal/pipeline/..."
+    description: "Pipeline"
+    imports: []
+    exports: []
+
+  - name: internal
+    path: "internal"
