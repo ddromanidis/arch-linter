@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,14 @@ const fixture = "analyzer/testdata/src/shop"
 // build compiles one of the commands into a temporary directory.
 func build(t *testing.T, pkg string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), filepath.Base(pkg))
+	name := filepath.Base(pkg)
+	// Windows will not execute a file without the extension, and `go build -o` writes
+	// exactly the name it is given rather than adding one. Without this the binary builds
+	// and then cannot be run, which failed only on Windows and only in CI.
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	bin := filepath.Join(t.TempDir(), name)
 	out, err := exec.Command("go", "build", "-o", bin, "./"+pkg).CombinedOutput()
 	if err != nil {
 		t.Fatalf("building %s: %v\n%s", pkg, err, out)
