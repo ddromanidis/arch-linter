@@ -11,7 +11,9 @@ import (
 // Reported against the import spec rather than the package, so the diagnostic lands on the
 // line you have to delete. Walking the syntax rather than pass.Pkg.Imports() costs nothing
 // and is the only way to get that position.
-func checkImports(pass *analysis.Pass, rules *Rules, component string) {
+func (c *checker) checkImports() {
+	pass, rules, component := c.pass, c.rules, c.component
+
 	for _, f := range pass.Files {
 		if inSkippedFile(pass, rules, f.Pos()) {
 			continue
@@ -24,7 +26,8 @@ func checkImports(pass *analysis.Pass, rules *Rules, component string) {
 			if rules.Resolver.AllowsImport(component, path) {
 				continue
 			}
-			pass.Report(analysis.Diagnostic{
+			c.target = path
+			c.report(analysis.Diagnostic{
 				Category: RuleImports,
 				Pos:      spec.Pos(),
 				End:      spec.End(),

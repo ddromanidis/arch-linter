@@ -13,14 +13,16 @@ import (
 // The surface is everything reachable from outside — exported package-scope declarations,
 // and the exported methods of exported types, which live on the type rather than in the
 // package scope and so have to be collected separately.
-func checkExports(pass *analysis.Pass, rules *Rules, component string) {
+func (c *checker) checkExports() {
+	pass, rules := c.pass, c.rules
+
 	scope := pass.Pkg.Scope()
 	for _, name := range scope.Names() {
 		obj := scope.Lookup(name)
 		if !obj.Exported() || inSkippedFile(pass, rules, obj.Pos()) {
 			continue
 		}
-		report(pass, rules, component, obj, obj.Type(), name)
+		c.leaks(obj, obj.Type(), name)
 
 		named, ok := obj.Type().(*types.Named)
 		if !ok {
@@ -39,20 +41,15 @@ func checkExports(pass *analysis.Pass, rules *Rules, component string) {
 			if !m.Exported() || inSkippedFile(pass, rules, m.Pos()) {
 				continue
 			}
-			report(pass, rules, component, m, m.Type(), name+"."+m.Name())
+			c.leaks(m, m.Type(), name+"."+m.Name())
 		}
 	}
 }
 
-// report flags every disallowed package a type exposes.
-func report(
-	pass *analysis.Pass,
-	rules *Rules,
-	component string,
-	obj types.Object,
-	typ types.Type,
-	label string,
-) {
+// leaks flags every disallowed package a type exposes.
+func (c *checker) leaks(obj types.Object, typ types.Type, label string) {
+	pass, rules, component := c.pass, c.rules, c.component
+
 	var bad []string
 	for pkg := range referencedPackages(pass.Pkg, typ) {
 		if pkg == pass.Pkg {
@@ -71,7 +68,8 @@ func report(
 	sort.Strings(bad)
 
 	for _, path := range bad {
-		pass.Report(analysis.Diagnostic{
+		c.target = path
+		c.report(analysis.Diagnostic{
 			Category: RuleExports,
 			Pos:      obj.Pos(),
 			Message: label + " exposes " + rules.Resolver.Describe(path) +

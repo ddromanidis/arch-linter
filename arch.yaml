@@ -12,9 +12,16 @@ components:
   analyzer:
     path: analyzer/...
     description: "The two rules, as an analysis.Analyzer."
-    imports: [config, golang.org/x/tools/go/analysis, go/types, go/token]
+    imports: [config, golang.org/x/tools/go/analysis, go/types, go/token, reflect]
     # Exposing analysis and config is deliberate: the golangci-lint plugin needs both.
-    exports: [config, golang.org/x/tools/go/analysis]
+    # Violation carries a token.Pos, so go/token is part of the surface.
+    exports: [config, golang.org/x/tools/go/analysis, go/token]
+
+  baseline:
+    path: internal/baseline/...
+    description: "Freezes today's violations so a rule can be switched on before the code obeys it."
+    imports: [report, gopkg.in/yaml.v3, bytes]
+    exports: [report]
 
   report:
     path: internal/report/...
@@ -39,7 +46,7 @@ components:
   cli:
     path: cmd/...
     description: "The command. May reach everything; nothing may reach it."
-    imports: [analyzer, config, report, driver, golang.org/x/term]
+    imports: [analyzer, config, report, driver, baseline, golang.org/x/term]
     exports: []
 
 defaults:

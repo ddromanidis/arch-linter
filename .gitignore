@@ -1,4 +1,6 @@
 bin/
 .task/
+coverage.out
 .DS_Store
 arch-lint
+.arch-baseline.yaml

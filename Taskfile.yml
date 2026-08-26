@@ -1,0 +1,94 @@
+version: "3"
+
+vars:
+  BIN: bin/arch-lint
+  # Stamped into the binary, so `arch-lint -version` says something useful from a checkout
+  # as well as from a release.
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+
+tasks:
+  default:
+    desc: Build, vet, lint and test
+    deps: [build, check]
+
+  build:
+    desc: Build the binary into bin/
+    sources: ["**/*.go", go.mod, go.sum]
+    generates: ["{{.BIN}}"]
+    cmds:
+      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/arch-lint
+
+  install:
+    desc: Install arch-lint into GOBIN
+    cmds:
+      - go install -ldflags "-X main.version={{.VERSION}}" ./cmd/arch-lint
+
+  test:
+    desc: Run the tests
+    cmds:
+      - go test ./... {{.CLI_ARGS}}
+
+  test:v:
+    desc: Run the tests, verbosely
+    cmds:
+      - go test -v ./... {{.CLI_ARGS}}
+
+  cover:
+    desc: Test with coverage, and open the report
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -func=coverage.out | tail -1
+      - go tool cover -html=coverage.out
+
+  fmt:
+    desc: Format
+    cmds:
+      - gofmt -w .
+
+  vet:
+    desc: go vet
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: golangci-lint, if it is installed
+    status:
+      - '! command -v golangci-lint'
+    cmds:
+      - golangci-lint run
+
+  # The tool has to be able to describe itself, or it is not describing much. This runs the
+  # freshly built binary against this repository's own arch.yaml.
+  dogfood:
+    desc: Run arch-lint on arch-lint
+    deps: [build]
+    cmds:
+      - ./{{.BIN}} ./...
+
+  check:
+    desc: Everything CI runs
+    cmds:
+      - task: fmt:check
+      - task: vet
+      - task: test
+      - task: dogfood
+
+  fmt:check:
+    desc: Fail if anything is unformatted
+    cmds:
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "not gofmt'd:"; echo "$unformatted"; exit 1
+        fi
+
+  tidy:
+    desc: go mod tidy
+    cmds:
+      - go mod tidy
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -rf bin coverage.out

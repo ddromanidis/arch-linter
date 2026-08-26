@@ -91,3 +91,8 @@ func TestSkipPackage(t *testing.T) {
 		}
 	}
 }
+
+// Waivers: what they suppress, and what they must not.
+func TestWaivers(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), New(rulesFor(t)), "shop/internal/waived")
+}

@@ -65,32 +65,50 @@ func Analyse(dir string, patterns []string, rules *analyzer.Rules) ([]report.Fin
 			TypesInfo:  pkg.TypesInfo,
 			TypesSizes: pkg.TypesSizes,
 			ResultOf:   map[*analysis.Analyzer]any{},
-			Report: func(d analysis.Diagnostic) {
-				pos := pkg.Fset.Position(d.Pos)
-				sev := severityOf(d.Category, rules.Config)
-				findings = append(findings, report.Finding{
-					Rule:      d.Category,
-					Component: component,
-					File:      pos.Filename,
-					Line:      pos.Line,
-					Column:    pos.Column,
-					Message:   d.Message,
-					Severity:  string(sev),
-				})
-			},
+			// Discarded on purpose. Diagnostics exist for go vet and golangci-lint, which
+			// understand nothing else; this driver reads the structured result instead, so
+			// that a baseline can be keyed on the package at fault rather than on the
+			// wording of a sentence.
+			Report: func(analysis.Diagnostic) {},
 		}
-		if _, err := a.Run(pass); err != nil {
+		res, err := a.Run(pass)
+		if err != nil {
 			return nil, fmt.Errorf("%s: %w", pkg.PkgPath, err)
+		}
+		violations, _ := res.([]analyzer.Violation)
+		for _, v := range violations {
+			pos := pkg.Fset.Position(v.Pos)
+			findings = append(findings, report.Finding{
+				Rule:      v.Rule,
+				Component: cmp(v.Component, component),
+				Target:    v.Target,
+				File:      pos.Filename,
+				Line:      pos.Line,
+				Column:    pos.Column,
+				Message:   v.Message,
+				Severity:  string(severityOf(v.Rule, rules.Config)),
+			})
 		}
 	}
 	return findings, nil
 }
 
+// cmp prefers a non-empty value, so a violation that knows its own component wins.
+func cmp(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
 // severityOf maps a diagnostic's category to the configured severity. The category is set
 // where the diagnostic is created, so this cannot drift from the message text.
 func severityOf(category string, cfg *config.Config) config.Severity {
-	if category == analyzer.RuleImports {
+	switch category {
+	case analyzer.RuleImports:
 		return cfg.Severity.Imports
+	case analyzer.RuleWaivers:
+		return cfg.Severity.Waivers
 	}
 	return cfg.Severity.Exports
 }

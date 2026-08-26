@@ -52,6 +52,10 @@ type Output struct {
 type Severities struct {
 	Imports Severity `yaml:"imports"`
 	Exports Severity `yaml:"exports"`
+	// Waivers reports directives that are malformed or that suppress nothing. A warning by
+	// default: stale waivers are worth knowing about but are not themselves an
+	// architecture violation, and failing a build over one would be perverse.
+	Waivers Severity `yaml:"waivers"`
 }
 
 // Default is the configuration used when no arch.config.yaml exists, which should be the
@@ -60,7 +64,7 @@ func Default() *Config {
 	return &Config{
 		Version:  1,
 		Output:   Output{Format: "text", Color: "auto"},
-		Severity: Severities{Imports: Error, Exports: Error},
+		Severity: Severities{Imports: Error, Exports: Error, Waivers: Warning},
 		Baseline: "",
 	}
 }
@@ -109,6 +113,7 @@ func (c *Config) validate(file string) error {
 	for name, s := range map[string]Severity{
 		"imports": c.Severity.Imports,
 		"exports": c.Severity.Exports,
+		"waivers": c.Severity.Waivers,
 	} {
 		if !s.valid() {
 			return fmt.Errorf("%s: severity.%s must be error, warning or off, got %q",

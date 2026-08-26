@@ -10,6 +10,11 @@ components:
     path: internal/app/...
     imports: [domain]
     exports: [domain]
+  waived:
+    path: internal/waived/...
+    description: "Fixture for the //arch-lint:ignore directive."
+    imports: [domain]
+    exports: [domain]
   infra:
     path: internal/infra/...
     description: "Owns the driver, and must not hand it out."

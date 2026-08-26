@@ -15,11 +15,13 @@ import (
 type Finding struct {
 	Rule      string `json:"rule"` // "imports" or "exports"
 	Component string `json:"component"`
-	File      string `json:"file"`
-	Line      int    `json:"line"`
-	Column    int    `json:"column"`
-	Message   string `json:"message"`
-	Severity  string `json:"severity"`
+	// Target is the import path at fault — the stable key a baseline is built on.
+	Target   string `json:"target"`
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Column   int    `json:"column"`
+	Message  string `json:"message"`
+	Severity string `json:"severity"`
 }
 
 // Sort orders findings the way a person reads them: by file, then position. Deterministic

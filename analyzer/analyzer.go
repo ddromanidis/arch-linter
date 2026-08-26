@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -71,8 +72,9 @@ func (r *Rules) skipFile(filename string) bool {
 // it reads the config once and hands it over, so nothing is discovered twice.
 func New(rules *Rules) *analysis.Analyzer {
 	return &analysis.Analyzer{
-		Name: "archlint",
-		Doc:  doc,
+		Name:       "archlint",
+		Doc:        doc,
+		ResultType: reflect.TypeOf([]Violation{}),
 		Run: func(pass *analysis.Pass) (any, error) {
 			return run(pass, rules)
 		},
@@ -101,8 +103,9 @@ var (
 
 func newDiscovering() *analysis.Analyzer {
 	a := &analysis.Analyzer{
-		Name: "archlint",
-		Doc:  doc,
+		Name:       "archlint",
+		Doc:        doc,
+		ResultType: reflect.TypeOf([]Violation{}),
 		Run: func(pass *analysis.Pass) (any, error) {
 			rules, err := discover(pass, archFlag, configFlag)
 			if err != nil {
@@ -111,7 +114,7 @@ func newDiscovering() *analysis.Analyzer {
 			if rules == nil {
 				// No arch.yaml anywhere above this package. Not an error: a repository is
 				// allowed to have corners the architecture says nothing about.
-				return nil, nil
+				return []Violation(nil), nil
 			}
 			return run(pass, rules)
 		},
@@ -217,23 +220,32 @@ func run(pass *analysis.Pass, rules *Rules) (any, error) {
 	pkgPath := strings.Fields(pass.Pkg.Path())[0]
 
 	if rules.skipPackage(pkgPath) {
-		return nil, nil
+		return []Violation(nil), nil
 	}
 	component := rules.Resolver.Component(pkgPath)
 	if component == "" {
 		// Outside the architecture. Reporting every unclassified package would make
 		// adopting the tool on a real repository an exercise in silencing it; a package
 		// nobody has assigned to a component simply has no rules yet.
-		return nil, nil
+		return []Violation(nil), nil
 	}
 
+	c := &checker{
+		pass:      pass,
+		rules:     rules,
+		component: component,
+		waivers:   collectWaivers(pass),
+	}
 	if rules.Config.Severity.Imports != config.Off {
-		checkImports(pass, rules, component)
+		c.checkImports()
 	}
 	if rules.Config.Severity.Exports != config.Off {
-		checkExports(pass, rules, component)
+		c.checkExports()
 	}
-	return nil, nil
+	// Last, so that "used" is accurate: a waiver is only unused once both rules have had
+	// their chance to be silenced by it.
+	c.reportWaiverProblems()
+	return c.found, nil
 }
 
 // inSkippedFile reports whether a position falls in an excluded file.
@@ -250,4 +262,17 @@ func inSkippedFile(pass *analysis.Pass, rules *Rules, pos token.Pos) bool {
 const (
 	RuleImports = "imports"
 	RuleExports = "exports"
+	RuleWaivers = "waivers"
 )
+
+// Violation is the structured form of a diagnostic, returned as the analyzer's result so a
+// driver does not have to parse message text to learn what was violated.
+type Violation struct {
+	Rule      string
+	Component string
+	// Target is the import path the rule was broken about — the stable half of a
+	// violation's identity. Messages get reworded; package paths do not.
+	Target  string
+	Message string
+	Pos     token.Pos
+}
