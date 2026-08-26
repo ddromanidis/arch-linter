@@ -13,16 +13,18 @@ tasks:
     deps: [build, check]
 
   build:
-    desc: Build the binary into bin/
+    desc: Build both binaries into bin/
     sources: ["**/*.go", go.mod, go.sum]
-    generates: ["{{.BIN}}"]
+    generates: ["{{.BIN}}", "bin/arch-lint-vet"]
     cmds:
       - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/arch-lint
+      - go build -o bin/arch-lint-vet ./cmd/arch-lint-vet
 
   install:
-    desc: Install arch-lint into GOBIN
+    desc: Install both binaries into GOBIN
     cmds:
       - go install -ldflags "-X main.version={{.VERSION}}" ./cmd/arch-lint
+      - go install ./cmd/arch-lint-vet
 
   test:
     desc: Run the tests
@@ -51,6 +53,20 @@ tasks:
     cmds:
       - go vet ./...
 
+  # The plugin is a nested module so that golangci-lint's dependency graph stays out of the
+  # main one. Nothing else builds it, so it rots silently unless CI does.
+  plugin:build:
+    desc: Build the golangci-lint plugin module
+    dir: plugin/golangci
+    cmds:
+      - go build ./...
+
+  plugin:tidy:
+    desc: Tidy the plugin module
+    dir: plugin/golangci
+    cmds:
+      - go mod tidy
+
   lint:
     desc: golangci-lint, if it is installed
     status:
@@ -72,6 +88,7 @@ tasks:
       - task: fmt:check
       - task: vet
       - task: test
+      - task: plugin:build
       - task: dogfood
 
   fmt:check:

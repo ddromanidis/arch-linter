@@ -46,7 +46,15 @@ components:
   cli:
     path: cmd/...
     description: "The command. May reach everything; nothing may reach it."
-    imports: [analyzer, config, report, driver, baseline, golang.org/x/term]
+    imports:
+      - analyzer
+      - config
+      - report
+      - driver
+      - baseline
+      - golang.org/x/term
+      # cmd/arch-lint-vet is a unitchecker, so `go vet` can drive the same rules.
+      - golang.org/x/tools/go/analysis/singlechecker
     exports: []
 
 defaults:

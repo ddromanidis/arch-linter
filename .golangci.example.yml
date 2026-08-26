@@ -1,0 +1,19 @@
+# Using arch-lint from a custom golangci-lint build. See .custom-gcl.yml.
+version: "2"
+
+linters:
+  enable:
+    - archlint
+
+  settings:
+    custom:
+      archlint:
+        type: module
+        description: >-
+          Enforces arch.yaml: what each component may import, and what each
+          component may expose in its public API.
+        settings:
+          # Both optional. Omit them and the analyzer walks up from each package to
+          # the nearest arch.yaml, which is what a single-module repository wants.
+          arch: ""
+          config: ""
