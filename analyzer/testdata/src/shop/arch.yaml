@@ -1,0 +1,20 @@
+version: 1
+module: shop
+components:
+  domain:
+    path: internal/domain/...
+    description: "Entities and rules. Depends on nothing."
+    imports: []
+    exports: []
+  app:
+    path: internal/app/...
+    imports: [domain]
+    exports: [domain]
+  infra:
+    path: internal/infra/...
+    description: "Owns the driver, and must not hand it out."
+    imports: [domain, app, shop/driver]
+    exports: [domain, app]
+defaults:
+  imports: [fmt, errors, context]
+  exports: [time, context]

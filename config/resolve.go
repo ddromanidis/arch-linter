@@ -132,8 +132,15 @@ func (r *Resolver) Known(component string) bool {
 func (r *Resolver) Module() string { return r.module }
 
 // AllowsImport reports whether from may import the given path.
+//
+// Permission to export implies permission to import, because the reverse is incoherent:
+// you cannot put time.Time in a signature without importing time, so an export rule that
+// did not carry an import rule with it could never be exercised. The implication runs one
+// way only — importing a package emphatically does not entitle you to expose it, which is
+// the entire point of having two lists.
 func (r *Resolver) AllowsImport(from, importPath string) bool {
-	return r.allows(from, importPath, func(c componentRules) matcher { return c.imports })
+	return r.allows(from, importPath, func(c componentRules) matcher { return c.imports }) ||
+		r.allows(from, importPath, func(c componentRules) matcher { return c.exports })
 }
 
 // AllowsExport reports whether from may expose the given path in its API surface.

@@ -265,3 +265,37 @@ func TestModulePathFromGoMod(t *testing.T) {
 		t.Errorf("ModulePath = %q", got)
 	}
 }
+
+// Exposing a type requires importing it, so an export permission has to carry an import
+// permission with it — otherwise the export rule could never be exercised. The implication
+// runs one way only: importing the driver must not entitle infra to hand it out.
+func TestExportPermissionImpliesImportPermission(t *testing.T) {
+	a, err := parseArch([]byte(`
+version: 1
+module: github.com/acme/shop
+components:
+  domain:
+    path: internal/domain/...
+defaults:
+  exports: [time]
+`), "arch.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewResolver(a, "")
+	if !r.AllowsExport("domain", "time") {
+		t.Fatal("time is in the export defaults")
+	}
+	if !r.AllowsImport("domain", "time") {
+		t.Error("a package that may be exposed must be importable")
+	}
+
+	// And the converse must not hold.
+	r2 := resolver(t)
+	if !r2.AllowsImport("infra", "gorm.io/gorm") {
+		t.Fatal("infra imports gorm")
+	}
+	if r2.AllowsExport("infra", "gorm.io/gorm") {
+		t.Error("importing gorm must not entitle infra to export it")
+	}
+}

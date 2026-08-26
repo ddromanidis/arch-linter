@@ -1,0 +1,47 @@
+version: 1
+
+# arch-lint's own architecture. The tool has to be able to describe itself, or it is not
+# describing much.
+components:
+  config:
+    path: config/...
+    description: "Parses arch.yaml and arch.config.yaml. Knows nothing about Go code."
+    imports: [gopkg.in/yaml.v3, bytes]
+    exports: []
+
+  analyzer:
+    path: analyzer/...
+    description: "The two rules, as an analysis.Analyzer."
+    imports: [config, golang.org/x/tools/go/analysis, go/types, go/token]
+    # Exposing analysis and config is deliberate: the golangci-lint plugin needs both.
+    exports: [config, golang.org/x/tools/go/analysis]
+
+  report:
+    path: internal/report/...
+    description: "Findings to text, json, github, sarif."
+    imports: []
+    # io.Writer in Write's signature. Exporting a stdlib interface is not a leak worth
+    # forbidding; the rule exists to catch driver handles, not io.
+    exports: [io]
+
+  driver:
+    path: internal/run/...
+    description: "Loads packages and runs the analyzer over them."
+    imports:
+      - analyzer
+      - config
+      - report
+      - golang.org/x/tools/go/analysis
+      - golang.org/x/tools/go/packages
+    # The driver hands out Rules and a packages.LoadMode, so both are part of its surface.
+    exports: [report, analyzer, golang.org/x/tools/go/packages]
+
+  cli:
+    path: cmd/...
+    description: "The command. May reach everything; nothing may reach it."
+    imports: [analyzer, config, report, driver, golang.org/x/term]
+    exports: []
+
+defaults:
+  imports: [fmt, errors, os, io, strings, sort, path, path/filepath, sync, strconv, flag, encoding/json]
+  exports: []
