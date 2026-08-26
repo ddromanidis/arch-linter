@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # The analyzer resolves types, so it is sensitive to what the toolchain knows about
+        # them — types.Alias in particular. Both supported minors, on every OS, because a
+        # path-handling bug that only shows on Windows is exactly the kind this tool would
+        # have: it matches import paths against patterns all day.
+        go: ["1.24", "1.25"]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+      - run: go build ./...
+      - run: go test ./...
+
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
+
+      - run: go vet ./...
+
+      # The plugin is a nested module, so nothing else builds it and it would rot silently.
+      - name: Build the golangci-lint plugin module
+        working-directory: plugin/golangci
+        run: go build ./...
+
+      # A tool that cannot describe its own architecture is not describing much.
+      - name: Dogfood
+        run: go run ./cmd/arch-lint ./...
+
+      # The three front ends share one Analyzer. This is the only thing that proves they
+      # have not been wired up differently.
+      - name: go vet -vettool smoke test
+        run: |
+          go build -o /tmp/arch-lint-vet ./cmd/arch-lint-vet
+          cd analyzer/testdata/src/shop
+          go vet -vettool=/tmp/arch-lint-vet ./internal/domain

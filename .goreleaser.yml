@@ -1,0 +1,44 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: arch-lint
+    main: ./cmd/arch-lint
+    binary: arch-lint
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  # Shipped alongside, because `go vet -vettool` needs a binary and asking people to build
+  # one from source defeats the point of publishing releases at all.
+  - id: arch-lint-vet
+    main: ./cmd/arch-lint-vet
+    binary: arch-lint-vet
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags: [-s -w]
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [README.md, LICENSE]
+
+changelog:
+  use: github
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]
+
+release:
+  footer: |
+    **Install**
+    ```sh
+    go install github.com/ddromanidis/arch-linter/cmd/arch-lint@{{.Tag}}
+    ```

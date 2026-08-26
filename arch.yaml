@@ -23,6 +23,20 @@ components:
     imports: [report, gopkg.in/yaml.v3, bytes]
     exports: [report]
 
+  diagram:
+    path: internal/diagram/...
+    description: "Renders arch.yaml as a Mermaid graph."
+    imports: [config]
+    # Mermaid writes to an io.Writer. A stdlib interface in a signature is not the kind
+    # of leak this rule is for; the rule is for driver handles.
+    exports: [config, io]
+
+  scaffold:
+    path: internal/scaffold/...
+    description: "Writes a starting arch.yaml."
+    imports: []
+    exports: []
+
   report:
     path: internal/report/...
     description: "Findings to text, json, github, sarif."
@@ -52,6 +66,8 @@ components:
       - report
       - driver
       - baseline
+      - diagram
+      - scaffold
       - golang.org/x/term
       # cmd/arch-lint-vet is a unitchecker, so `go vet` can drive the same rules.
       - golang.org/x/tools/go/analysis/singlechecker
