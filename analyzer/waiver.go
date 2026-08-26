@@ -9,11 +9,11 @@ import (
 
 // The directive that silences one diagnostic:
 //
-//	//arch-lint:ignore exports the migration tool genuinely needs the handle
+//	//archlint:ignore exports the migration tool genuinely needs the handle
 //
 // Written without a space after the slashes, following //go: and //nolint:, though a space
 // is tolerated because people type it.
-const directive = "arch-lint:ignore"
+const directive = "archlint:ignore"
 
 // waiver is one such comment.
 type waiver struct {

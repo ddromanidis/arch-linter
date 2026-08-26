@@ -97,7 +97,7 @@ func TestStaleEntriesAreReported(t *testing.T) {
 }
 
 func TestSaveAndLoadRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".arch-baseline.yaml")
+	path := filepath.Join(t.TempDir(), ".archlint-baseline.yaml")
 	findings := []report.Finding{leak("a.go", 1), leak("a.go", 2)}
 	if err := Save(path, findings); err != nil {
 		t.Fatal(err)

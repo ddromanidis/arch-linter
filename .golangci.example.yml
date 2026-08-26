@@ -1,4 +1,4 @@
-# Using arch-lint from a custom golangci-lint build. See .custom-gcl.yml.
+# Using archlint from a custom golangci-lint build. See .custom-gcl.yml.
 version: "2"
 
 linters:

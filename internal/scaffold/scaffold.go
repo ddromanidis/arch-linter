@@ -44,7 +44,7 @@ func Write(path, preset, module string) error {
 
 const preamble = `version: 1
 
-# The Go module path. Optional — without it, arch-lint reads go.mod.
+# The Go module path. Optional — without it, archlint reads go.mod.
 # module: your/module/path
 
 # Components are named regions of the codebase. A trailing /... matches everything

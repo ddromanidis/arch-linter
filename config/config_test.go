@@ -299,3 +299,56 @@ defaults:
 		t.Error("importing gorm must not entitle infra to export it")
 	}
 }
+
+// `std` allows the whole standard library in one entry. Enumerating it is possible and
+// pointless: the first real repository this ran against produced hundreds of findings for
+// regexp, io/fs, math and cmp, which buries the rules worth having. No architecture is
+// damaged by a package using the standard library.
+func TestStdKeyword(t *testing.T) {
+	a, err := parseArch([]byte(`
+version: 1
+module: github.com/acme/shop
+components:
+  app:
+    path: internal/app/...
+    imports: [std]
+`), "arch.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewResolver(a, "")
+	for _, p := range []string{"fmt", "io/fs", "net/http", "regexp", "unicode/utf8", "database/sql"} {
+		if !r.AllowsImport("app", p) {
+			t.Errorf("std should allow %q", p)
+		}
+	}
+	// It is the standard library, not everything.
+	for _, p := range []string{"gorm.io/gorm", "github.com/x/y", "github.com/acme/shop/internal/infra"} {
+		if r.AllowsImport("app", p) {
+			t.Errorf("std must not allow %q", p)
+		}
+	}
+}
+
+// The standard library is decided by Go's own rule — a module path's first element contains
+// a dot — not by a list that goes stale. This was a hardcoded list, and Go 1.27 added
+// `uuid` to the standard library, so a real codebase importing it was told the standard
+// library was an undeclared third-party dependency.
+func TestStdlibDetectionDoesNotGoStale(t *testing.T) {
+	for _, p := range []string{
+		"fmt", "net/http", "io/fs", "unicode/utf8", "log/slog", "database/sql",
+		"uuid",              // added to the standard library in Go 1.27
+		"somefuturepackage", // and whatever is added next
+	} {
+		if !isStdlib(p) {
+			t.Errorf("isStdlib(%q) = false, want true", p)
+		}
+	}
+	for _, p := range []string{
+		"github.com/x/y", "gorm.io/gorm", "golang.org/x/tools", "entgo.io/ent",
+	} {
+		if isStdlib(p) {
+			t.Errorf("isStdlib(%q) = true, want false", p)
+		}
+	}
+}

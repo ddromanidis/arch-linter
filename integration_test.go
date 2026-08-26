@@ -42,8 +42,8 @@ func TestCLIAndVetToolAgree(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds two binaries and shells out")
 	}
-	cli := build(t, "cmd/arch-lint")
-	vet := build(t, "cmd/arch-lint-vet")
+	cli := build(t, "cmd/archlint")
+	vet := build(t, "cmd/archlint-vet")
 
 	dir, err := filepath.Abs(fixture)
 	if err != nil {
@@ -94,7 +94,7 @@ func TestCleanRunExitsZero(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a binary and shells out")
 	}
-	cli := build(t, "cmd/arch-lint")
+	cli := build(t, "cmd/archlint")
 	dir, err := filepath.Abs(fixture)
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestBaselineRoundTripThroughTheCLI(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a binary and shells out")
 	}
-	cli := build(t, "cmd/arch-lint")
+	cli := build(t, "cmd/archlint")
 	dir, err := filepath.Abs(fixture)
 	if err != nil {
 		t.Fatal(err)

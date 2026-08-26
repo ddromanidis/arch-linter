@@ -1,4 +1,4 @@
-// Command arch-lint checks that a Go module obeys the architecture written in its
+// Command archlint checks that a Go module obeys the architecture written in its
 // arch.yaml — both what each component may import, and what each component may expose.
 package main
 
@@ -19,13 +19,13 @@ import (
 	"golang.org/x/term"
 )
 
-const usage = `arch-lint — architecture rules for Go, including what your packages expose
+const usage = `archlint — architecture rules for Go, including what your packages expose
 
 usage:
-  arch-lint [flags] [packages]          check the architecture
-  arch-lint baseline [flags] [packages] freeze today's violations and exit
-  arch-lint init [-preset NAME]         write a starting arch.yaml
-  arch-lint diagram [-arch PATH]        print the component graph as Mermaid
+  archlint [flags] [packages]          check the architecture
+  archlint baseline [flags] [packages] freeze today's violations and exit
+  archlint init [-preset NAME]         write a starting arch.yaml
+  archlint diagram [-arch PATH]        print the component graph as Mermaid
 
 Packages default to ./... . Rules come from arch.yaml, found by walking up from the
 working directory; tool settings come from arch.config.yaml beside it, if present.
@@ -52,7 +52,7 @@ exit status:
 var version = "dev"
 
 func main() {
-	// The subcommand is read before flag parsing so that `arch-lint baseline -format json`
+	// The subcommand is read before flag parsing so that `archlint baseline -format json`
 	// works the way people expect rather than being rejected as a stray argument.
 	args := os.Args[1:]
 	command := "lint"
@@ -63,7 +63,7 @@ func main() {
 		}
 	}
 
-	fs := flag.NewFlagSet("arch-lint", flag.ExitOnError)
+	fs := flag.NewFlagSet("archlint", flag.ExitOnError)
 	var (
 		archPath     = fs.String("arch", "", "path to arch.yaml")
 		configPath   = fs.String("config", "", "path to arch.config.yaml")
@@ -76,7 +76,7 @@ func main() {
 	_ = fs.Parse(args)
 
 	if *showVer {
-		fmt.Println("arch-lint", version)
+		fmt.Println("archlint", version)
 		return
 	}
 
@@ -100,7 +100,7 @@ func main() {
 		err = lint(opts)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "arch-lint:", err)
+		fmt.Fprintln(os.Stderr, "archlint:", err)
 		os.Exit(2)
 	}
 }
@@ -122,7 +122,7 @@ func initArch(o options) error {
 		return err
 	}
 	// Best effort: a module path makes the file immediately usable, and its absence only
-	// means arch-lint reads go.mod itself later.
+	// means archlint reads go.mod itself later.
 	var module string
 	if goMod, ok := findUp(wd, "go.mod"); ok {
 		module, _ = config.ModulePath(goMod)
@@ -131,7 +131,7 @@ func initArch(o options) error {
 		return err
 	}
 	fmt.Printf("wrote %s (%s preset)\n", path, o.preset)
-	fmt.Println("edit it to match your components, then run `arch-lint`")
+	fmt.Println("edit it to match your components, then run `archlint`")
 	return nil
 }
 
@@ -173,7 +173,7 @@ func lint(o options) error {
 		found, ok := findUp(wd, "arch.yaml")
 		if !ok {
 			return fmt.Errorf(
-				"no arch.yaml here or above. `arch-lint init` writes a starting point")
+				"no arch.yaml here or above. `archlint init` writes a starting point")
 		}
 		archPath = found
 	}
@@ -214,7 +214,7 @@ func lint(o options) error {
 
 	if o.write {
 		if blPath == "" {
-			blPath = filepath.Join(root, ".arch-baseline.yaml")
+			blPath = filepath.Join(root, ".archlint-baseline.yaml")
 		}
 		if err := baseline.Save(blPath, findings); err != nil {
 			return err
@@ -246,7 +246,7 @@ func lint(o options) error {
 			fmt.Printf("%d violation(s) forgiven by the baseline\n", forgiven)
 		}
 		if len(stale) > 0 {
-			fmt.Printf("%d baseline entr(y/ies) now over-count: re-run `arch-lint baseline` "+
+			fmt.Printf("%d baseline entr(y/ies) now over-count: re-run `archlint baseline` "+
 				"to lock the improvement in\n", len(stale))
 		}
 	}

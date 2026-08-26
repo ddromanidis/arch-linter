@@ -1,4 +1,4 @@
-// Package golangci exposes arch-lint as a golangci-lint module plugin.
+// Package golangci exposes archlint as a golangci-lint module plugin.
 //
 // A nested module, deliberately. golangci-lint's plugin registry drags in golangci-lint's
 // own dependency graph, and anybody importing github.com/ddromanidis/arch-linter/analyzer
@@ -8,7 +8,7 @@
 // Note the adoption cost, which is real and should not be glossed over: module plugins
 // require users to build a custom golangci-lint binary via .custom-gcl.yml. The older .so
 // plugin path avoided that and is effectively dead. For anyone unwilling to maintain a
-// custom build, `arch-lint` as a standalone step in CI is the simpler answer and loses
+// custom build, `archlint` as a standalone step in CI is the simpler answer and loses
 // nothing but a shared invocation.
 package golangci
 

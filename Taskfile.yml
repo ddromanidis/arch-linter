@@ -1,8 +1,8 @@
 version: "3"
 
 vars:
-  BIN: bin/arch-lint
-  # Stamped into the binary, so `arch-lint -version` says something useful from a checkout
+  BIN: bin/archlint
+  # Stamped into the binary, so `archlint -version` says something useful from a checkout
   # as well as from a release.
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
@@ -15,16 +15,16 @@ tasks:
   build:
     desc: Build both binaries into bin/
     sources: ["**/*.go", go.mod, go.sum]
-    generates: ["{{.BIN}}", "bin/arch-lint-vet"]
+    generates: ["{{.BIN}}", "bin/archlint-vet"]
     cmds:
-      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/arch-lint
-      - go build -o bin/arch-lint-vet ./cmd/arch-lint-vet
+      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/archlint
+      - go build -o bin/archlint-vet ./cmd/archlint-vet
 
   install:
     desc: Install both binaries into GOBIN
     cmds:
-      - go install -ldflags "-X main.version={{.VERSION}}" ./cmd/arch-lint
-      - go install ./cmd/arch-lint-vet
+      - go install -ldflags "-X main.version={{.VERSION}}" ./cmd/archlint
+      - go install ./cmd/archlint-vet
 
   test:
     desc: Run the tests
@@ -77,7 +77,7 @@ tasks:
   # The tool has to be able to describe itself, or it is not describing much. This runs the
   # freshly built binary against this repository's own arch.yaml.
   dogfood:
-    desc: Run arch-lint on arch-lint
+    desc: Run archlint on archlint
     deps: [build]
     cmds:
       - ./{{.BIN}} ./...

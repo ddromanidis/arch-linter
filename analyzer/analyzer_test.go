@@ -76,7 +76,9 @@ func TestSkipFile(t *testing.T) {
 
 func TestSkipPackage(t *testing.T) {
 	rules := rulesFor(t)
-	rules.Config.Exclude = []string{"shop/internal/generated/..."}
+	rules.Config.Exclude = []string{"internal/generated/..."}
+	rules.pkgExcludes = nil
+	rules.compileExcludes()
 	for _, tc := range []struct {
 		path string
 		want bool

@@ -2,7 +2,7 @@
 // switched on today and obeyed gradually.
 //
 // This is the difference between a tool people adopt and a tool people uninstall. Turning
-// arch-lint on for the first time in a mature repository reports hundreds of findings, and
+// archlint on for the first time in a mature repository reports hundreds of findings, and
 // nobody is going to fix them before their next commit lands. Without a way to say "not
 // these, not yet", the rule never gets switched on at all.
 package baseline
@@ -40,11 +40,11 @@ type File struct {
 	Entries []Entry `yaml:"entries"`
 }
 
-const header = `# arch-lint baseline — written by ` + "`arch-lint baseline`" + `.
+const header = `# archlint baseline — written by ` + "`archlint baseline`" + `.
 #
 # Each entry freezes violations that already existed when the rule was switched on. A run
 # fails when a count goes up, so the architecture can only improve: fix some, re-run
-# ` + "`arch-lint baseline`" + `, and the numbers come down. Delete an entry once it reaches zero.
+# ` + "`archlint baseline`" + `, and the numbers come down. Delete an entry once it reaches zero.
 `
 
 // Load reads a baseline. A missing file means nothing is forgiven, which is the right
@@ -137,7 +137,7 @@ func (f *File) Apply(findings []report.Finding) (kept []report.Finding, forgiven
 }
 
 // Stale returns entries whose count exceeds what the code now produces, which is the
-// prompt to re-run `arch-lint baseline` and lock the improvement in.
+// prompt to re-run `archlint baseline` and lock the improvement in.
 func (f *File) Stale(findings []report.Finding) []Entry {
 	actual := map[string]int{}
 	for _, fd := range findings {

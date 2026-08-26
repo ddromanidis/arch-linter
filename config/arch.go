@@ -1,4 +1,4 @@
-// Package config reads the two files arch-lint is driven by.
+// Package config reads the two files archlint is driven by.
 //
 // They are deliberately separate. arch.yaml is the architecture: a design document that
 // happens to be executable, reviewed like code and diffed like code. arch.config.yaml is
@@ -153,6 +153,21 @@ func (a *Arch) validate(file string) error {
 	return nil
 }
 
+// StdKeyword allows the entire standard library in one rule entry.
+const StdKeyword = "std"
+
+// isStdlib reports whether an import path names a standard library package.
+//
+// Uses the language's own rule — a module path's first element must contain a dot — rather
+// than a list of known roots. A list goes stale: this was hardcoded, and Go 1.27 added
+// `uuid` to the standard library, so a real codebase importing it was told the standard
+// library was a third-party dependency it had not declared. The dot rule cannot rot,
+// because it is the rule the go command itself uses to tell the two apart.
+func isStdlib(importPath string) bool {
+	first, _, _ := strings.Cut(importPath, "/")
+	return first != "" && !strings.Contains(first, ".")
+}
+
 // checkRule rejects entries that can never match anything.
 func (a *Arch) checkRule(file, owner, what, rule string) error {
 	if strings.TrimSpace(rule) == "" {
@@ -161,6 +176,9 @@ func (a *Arch) checkRule(file, owner, what, rule string) error {
 	if strings.Contains(rule, "...") && !strings.HasSuffix(rule, "/...") {
 		return fmt.Errorf("%s: %s.%s: %q is only meaningful as a trailing %q",
 			file, owner, what, "...", "/...")
+	}
+	if rule == StdKeyword {
+		return nil
 	}
 	if _, isComponent := a.Components[rule]; isComponent {
 		return nil
@@ -181,11 +199,14 @@ func (a *Arch) checkRule(file, owner, what, rule string) error {
 		file, owner, what, rule)
 }
 
-// stdlibRoots is every top-level directory of the standard library.
+// stdlibRoots exists only to catch typos in a config file, and is deliberately not used to
+// decide what the standard library is at analysis time — see isStdlib.
 //
-// Hardcoded rather than discovered by shelling out to `go list std`, which would make
-// parsing a config depend on a working toolchain and a few hundred milliseconds. The set
-// only grows, and a package missing from it fails loudly rather than silently.
+// The distinction matters. A bare word in a rule list is ambiguous: `fmt` is the standard
+// library, `doamin` is a fat-fingered component name. Checking against known roots catches
+// the second. Being out of date here costs a false error on a config entry, which is
+// visible and fixable; being out of date in isStdlib cost a hundred false findings against
+// real code, which is neither.
 var stdlibRoots = map[string]bool{
 	"archive": true, "bufio": true, "builtin": true, "bytes": true, "cmp": true,
 	"compress": true, "container": true, "context": true, "crypto": true,
@@ -196,7 +217,7 @@ var stdlibRoots = map[string]bool{
 	"reflect": true, "regexp": true, "runtime": true, "slices": true, "sort": true,
 	"strconv": true, "strings": true, "structs": true, "sync": true, "syscall": true,
 	"testing": true, "text": true, "time": true, "unicode": true, "unique": true,
-	"unsafe": true, "weak": true,
+	"unsafe": true, "uuid": true, "weak": true,
 }
 
 // ModulePath returns the module path from a go.mod, for when arch.yaml omits it.
@@ -215,6 +236,12 @@ func ModulePath(goMod string) (string, error) {
 	}
 	return "", fmt.Errorf("%s: no module directive", goMod)
 }
+
+// Qualify turns a pattern written relative to the module into a full import path. Exported
+// because exclusion patterns in arch.config.yaml are written the same way component paths
+// are, and must be resolved the same way — they were not, so a relative exclude silently
+// matched nothing.
+func Qualify(module, pattern string) string { return qualify(module, pattern) }
 
 // qualify turns a pattern written relative to the module into a full import path.
 //

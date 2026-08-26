@@ -5,9 +5,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: arch-lint
-    main: ./cmd/arch-lint
-    binary: arch-lint
+  - id: archlint
+    main: ./cmd/archlint
+    binary: archlint
     env: [CGO_ENABLED=0]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
@@ -16,9 +16,9 @@ builds:
 
   # Shipped alongside, because `go vet -vettool` needs a binary and asking people to build
   # one from source defeats the point of publishing releases at all.
-  - id: arch-lint-vet
-    main: ./cmd/arch-lint-vet
-    binary: arch-lint-vet
+  - id: archlint-vet
+    main: ./cmd/archlint-vet
+    binary: archlint-vet
     env: [CGO_ENABLED=0]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
@@ -40,5 +40,5 @@ release:
   footer: |
     **Install**
     ```sh
-    go install github.com/ddromanidis/arch-linter/cmd/arch-lint@{{.Tag}}
+    go install github.com/ddromanidis/arch-linter/cmd/archlint@{{.Tag}}
     ```

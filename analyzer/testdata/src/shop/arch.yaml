@@ -12,7 +12,7 @@ components:
     exports: [domain]
   waived:
     path: internal/waived/...
-    description: "Fixture for the //arch-lint:ignore directive."
+    description: "Fixture for the //archlint:ignore directive."
     imports: [domain]
     exports: [domain]
   infra:

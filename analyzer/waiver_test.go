@@ -12,13 +12,13 @@ func TestDirectiveParsing(t *testing.T) {
 		rule    string
 		reason  string
 	}{
-		{"//arch-lint:ignore exports the installer needs the handle", true, "exports", "the installer needs the handle"},
-		{"// arch-lint:ignore imports legacy", true, "imports", "legacy"}, // a space is tolerated
-		{"//arch-lint:ignore exports", true, "exports", ""},               // parses, but no reason
-		{"//arch-lint:ignore", true, "", ""},
+		{"//archlint:ignore exports the installer needs the handle", true, "exports", "the installer needs the handle"},
+		{"// archlint:ignore imports legacy", true, "imports", "legacy"}, // a space is tolerated
+		{"//archlint:ignore exports", true, "exports", ""},               // parses, but no reason
+		{"//archlint:ignore", true, "", ""},
 		{"// just a comment", false, "", ""},
 		{"//nolint:all", false, "", ""},
-		{"/*arch-lint:ignore exports x*/", false, "", ""}, // block comments are not directives
+		{"/*archlint:ignore exports x*/", false, "", ""}, // block comments are not directives
 	} {
 		text, ok := parseDirective(tc.comment)
 		if ok != tc.ok {

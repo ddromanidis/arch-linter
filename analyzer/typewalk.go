@@ -4,7 +4,7 @@ import "go/types"
 
 // refs collects every package a type transitively refers to.
 //
-// This is the whole reason arch-lint exists. Import rules can be read off a file's import
+// This is the whole reason archlint exists. Import rules can be read off a file's import
 // block, which is why every other Go architecture linter stops there. Export rules cannot:
 // asking "does this exported signature mention a package it should not" means asking what
 // the types in it actually *are*, and that question has no syntactic answer. `Repo` tells

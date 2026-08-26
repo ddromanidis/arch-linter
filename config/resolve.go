@@ -34,10 +34,21 @@ type matcher struct {
 	names    map[string]bool // component names
 	exact    map[string]bool // exact import paths
 	prefixes []string        // import path prefixes from a trailing /...
+	// std allows the whole standard library, via the `std` keyword.
+	//
+	// Enumerating it is possible and pointless. The first real repository this was run
+	// against produced hundreds of findings for `regexp`, `io/fs`, `math` and `cmp` —
+	// noise that buries the rules worth having, since no architecture is damaged by a
+	// package using the standard library. The rules that matter are about internal
+	// boundaries and third-party drivers.
+	std bool
 }
 
 func (m matcher) allows(component, importPath string) bool {
 	if component != "" && m.names[component] {
+		return true
+	}
+	if m.std && isStdlib(importPath) {
 		return true
 	}
 	if m.exact[importPath] {
@@ -94,6 +105,10 @@ func NewResolver(a *Arch, module string) *Resolver {
 func (r *Resolver) compile(a *Arch, rules []string) matcher {
 	m := matcher{names: map[string]bool{}, exact: map[string]bool{}}
 	for _, rule := range rules {
+		if rule == StdKeyword {
+			m.std = true
+			continue
+		}
 		if _, ok := a.Components[rule]; ok {
 			m.names[rule] = true
 			continue

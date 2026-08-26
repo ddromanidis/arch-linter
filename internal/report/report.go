@@ -173,7 +173,7 @@ func writeSARIF(w io.Writer, findings []Finding, root string) error {
 		"$schema": "https://json.schemastore.org/sarif-2.1.0.json",
 		"runs": []any{map[string]any{
 			"tool": map[string]any{"driver": map[string]any{
-				"name":           "arch-lint",
+				"name":           "archlint",
 				"informationUri": "https://github.com/ddromanidis/arch-linter",
 			}},
 			"results": results,

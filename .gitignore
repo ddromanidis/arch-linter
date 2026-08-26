@@ -1,11 +1,11 @@
-# Anchored to the repository root, all of them. An unanchored `arch-lint` matches any path
-# component with that name — including the cmd/arch-lint/ directory, which git then ignored
+# Anchored to the repository root, all of them. An unanchored `archlint` matches any path
+# component with that name — including the cmd/archlint/ directory, which git then ignored
 # silently, so the main command was absent from every clone while building fine here.
 /bin/
 /.task/
 /coverage.out
-/arch-lint
-/arch-lint-vet
+/archlint
+/archlint-vet
 /custom-gcl
-/.arch-baseline.yaml
+/.archlint-baseline.yaml
 .DS_Store

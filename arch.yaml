@@ -1,6 +1,6 @@
 version: 1
 
-# arch-lint's own architecture. The tool has to be able to describe itself, or it is not
+# archlint's own architecture. The tool has to be able to describe itself, or it is not
 # describing much.
 components:
   config:
@@ -69,7 +69,7 @@ components:
       - diagram
       - scaffold
       - golang.org/x/term
-      # cmd/arch-lint-vet is a unitchecker, so `go vet` can drive the same rules.
+      # cmd/archlint-vet is a unitchecker, so `go vet` can drive the same rules.
       - golang.org/x/tools/go/analysis/singlechecker
     exports: []
 

@@ -1,11 +1,11 @@
-# Build a golangci-lint that includes arch-lint:
+# Build a golangci-lint that includes archlint:
 #
 #   golangci-lint custom          # produces ./custom-gcl
 #   ./custom-gcl run
 #
 # The custom build is the real adoption cost of the plugin route, and it is not small: the
 # binary has to be built and distributed to every developer and every CI runner. If that is
-# not worth it, run `arch-lint` as its own step instead — the rules are identical, because
+# not worth it, run `archlint` as its own step instead — the rules are identical, because
 # both are the same Analyzer.
 version: v2.6.0
 name: custom-gcl

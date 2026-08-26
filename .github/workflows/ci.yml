@@ -54,12 +54,12 @@ jobs:
 
       # A tool that cannot describe its own architecture is not describing much.
       - name: Dogfood
-        run: go run ./cmd/arch-lint ./...
+        run: go run ./cmd/archlint ./...
 
       # The three front ends share one Analyzer. This is the only thing that proves they
       # have not been wired up differently.
       - name: go vet -vettool smoke test
         run: |
-          go build -o /tmp/arch-lint-vet ./cmd/arch-lint-vet
+          go build -o /tmp/archlint-vet ./cmd/archlint-vet
           cd analyzer/testdata/src/shop
-          go vet -vettool=/tmp/arch-lint-vet ./internal/domain
+          go vet -vettool=/tmp/archlint-vet ./internal/domain

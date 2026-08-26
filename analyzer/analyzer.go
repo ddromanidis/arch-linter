@@ -1,4 +1,4 @@
-// Package analyzer is arch-lint itself, as a golang.org/x/tools/go/analysis.Analyzer.
+// Package analyzer is archlint itself, as a golang.org/x/tools/go/analysis.Analyzer.
 //
 // Being an Analyzer rather than a bespoke driver is the load-bearing decision of the whole
 // design, and it works because architecture linting turns out to be package-local: a
@@ -27,15 +27,29 @@ import (
 type Rules struct {
 	Resolver *config.Resolver
 	Config   *config.Config
+	// pkgExcludes are the non-file exclusion patterns, resolved to full import paths once.
+	pkgExcludes []string
 }
 
-// skipPackage reports whether a package is excluded from analysis entirely.
-func (r *Rules) skipPackage(importPath string) bool {
+// compileExcludes resolves exclusion patterns against the module path.
+//
+// They are written module-relative, exactly as component paths are — `internal/gen/...`,
+// not `github.com/you/proj/internal/gen/...`. Component paths were qualified and these
+// were not, so an exclusion silently matched nothing and generated code kept being
+// reported. A rule that quietly does nothing is worse than one that errors.
+func (r *Rules) compileExcludes() {
 	for _, pattern := range r.Config.Exclude {
 		if strings.HasSuffix(pattern, ".go") {
 			continue // a file glob, handled by skipFile
 		}
 		base := strings.TrimSuffix(pattern, "/...")
+		r.pkgExcludes = append(r.pkgExcludes, config.Qualify(r.Resolver.Module(), base))
+	}
+}
+
+// skipPackage reports whether a package is excluded from analysis entirely.
+func (r *Rules) skipPackage(importPath string) bool {
+	for _, base := range r.pkgExcludes {
 		if importPath == base || strings.HasPrefix(importPath, base+"/") {
 			return true
 		}
@@ -185,7 +199,9 @@ func Load(archPath, configPath string) (*Rules, error) {
 		return nil, err
 	}
 
-	return &Rules{Resolver: config.NewResolver(arch, module), Config: cfg}, nil
+	rules := &Rules{Resolver: config.NewResolver(arch, module), Config: cfg}
+	rules.compileExcludes()
+	return rules, nil
 }
 
 // packageDir returns the directory holding the package under analysis.
