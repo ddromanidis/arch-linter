@@ -54,17 +54,38 @@ type Component struct {
 	Description string   `yaml:"description"`
 
 	// Imports is what this component may import.
+	//
+	// Omitting the key and writing `imports: []` are different statements. The empty list
+	// says this component may depend on nothing; omitting it says nothing at all about the
+	// component, and no import rule is applied. That is what lets the tool be adopted a
+	// component at a time rather than all at once.
 	Imports []string `yaml:"imports"`
 	// Exports is what may appear in this component's exported API surface — the rule no
 	// other Go architecture linter has. A component may legitimately *import* its database
 	// driver and still have no business *returning* it.
+	//
+	// Omitted means unconstrained, as with Imports. Most components have no API surface
+	// worth restricting, and requiring every one of them to say so was noise.
 	Exports []string `yaml:"exports"`
+	// Deny bans packages outright, for both importing and exporting, whatever the
+	// allowlists say.
+	//
+	// The allowlists already deny by default, so this exists for the case they cannot
+	// reach: narrowing something otherwise permitted. `imports: [std]` with
+	// `deny: [os/exec]` is the whole standard library minus the one package you have
+	// decided nobody may shell out through — and it keeps working on an unconstrained
+	// component, which is the only rule that does.
+	Deny []string `yaml:"deny"`
 }
 
 // Defaults apply to every component, so that "everyone may use fmt" is stated once.
 type Defaults struct {
 	Imports []string `yaml:"imports"`
 	Exports []string `yaml:"exports"`
+	// Deny bans packages across every component. Project-wide bans — `unsafe`, a
+	// deprecated internal library, the JSON package you have standardised away from —
+	// belong here rather than repeated in each component.
+	Deny []string `yaml:"deny"`
 }
 
 // patterns returns every path pattern for a component, in declaration order.
@@ -188,7 +209,11 @@ func (a *Arch) validate(file string) error {
 	for _, kind := range []struct {
 		what  string
 		rules []string
-	}{{"imports", a.Defaults.Imports}, {"exports", a.Defaults.Exports}} {
+	}{
+		{"imports", a.Defaults.Imports},
+		{"exports", a.Defaults.Exports},
+		{"deny", a.Defaults.Deny},
+	} {
 		for _, r := range kind.rules {
 			if err := a.checkRule(file, "defaults", kind.what, r); err != nil {
 				return err

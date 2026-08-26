@@ -98,12 +98,53 @@ defaults:
   exports: [context, time]
 ```
 
-Both lists are **allowlists**: anything not named is forbidden. A denylist is only as good
-as your imagination on the day you wrote it, and the dependency that hurts is the one
-nobody thought to ban.
+Both lists are **allowlists**: anything named is permitted, anything else is not. A
+denylist alone is only as good as your imagination on the day you wrote it, and the
+dependency that hurts is the one nobody thought to ban.
+
+**Omitting a list is not the same as emptying it.**
+
+```yaml
+domain:
+  imports: []      # depends on nothing. A lockdown.
+
+scratch:
+                   # no `imports` key: unconstrained, no rule applied
+```
+
+That is what lets you adopt this a component at a time — declare the three layers you care
+about, leave the rest silent — instead of every unclassified corner reporting its whole
+import block on day one. It matters most for `exports`, since most components have no API
+surface worth restricting and requiring each to say so was noise.
 
 Permission to export implies permission to import — you cannot return a `time.Time` without
-importing `time`. The implication runs one way only, which is the entire point.
+importing `time`. The implication runs one way only, which is the entire point. An *omitted*
+`exports` grants nothing, though: it declines to check, so it cannot quietly unconstrain
+the import rule beside it.
+
+### Banning something specific
+
+`deny` narrows what an allowlist has permitted, and beats every allow including `std`:
+
+```yaml
+components:
+  worker:
+    imports: [std, domain]
+    deny: [os/exec]          # the whole standard library, minus one
+
+defaults:
+  deny: [unsafe]             # project-wide
+```
+
+It is the only rule that still applies to an unconstrained component, which is the
+combination it exists for: *anything, except this*. Denying a package denies exposing it
+too. Messages say which rule fired, because the fixes are opposite — a denied import means
+deleting a line of Go, an undeclared one usually means adding a line to `arch.yaml`:
+
+```
+a/a.go:4:2  error  alpha may not import os/exec (denied)   [imports]
+b/b.go:9:2  error  bravo may not import gorm.io/gorm       [imports]
+```
 
 ### arch.config.yaml — the tool
 

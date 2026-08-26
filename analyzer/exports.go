@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"go/types"
+
+	"github.com/ddromanidis/arch-linter/config"
 	"sort"
 
 	"golang.org/x/tools/go/analysis"
@@ -50,30 +52,34 @@ func (c *checker) checkExports() {
 func (c *checker) leaks(obj types.Object, typ types.Type, label string) {
 	pass, rules, component := c.pass, c.rules, c.component
 
-	var bad []string
+	bad := map[string]config.Verdict{}
 	for pkg := range referencedPackages(pass.Pkg, typ) {
 		if pkg == pass.Pkg {
 			continue
 		}
-		if rules.Resolver.AllowsExport(component, pkg.Path()) {
-			continue
+		if v := rules.Resolver.CheckExport(component, pkg.Path()); v != config.Allowed {
+			bad[pkg.Path()] = v
 		}
-		bad = append(bad, pkg.Path())
 	}
 	if len(bad) == 0 {
 		return
 	}
 	// Deterministic: map iteration order must not decide what a diagnostic says, or the
 	// same code produces different output on consecutive runs.
-	sort.Strings(bad)
+	paths := make([]string, 0, len(bad))
+	for p := range bad {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
 
-	for _, path := range bad {
+	for _, path := range paths {
 		c.target = path
 		c.report(analysis.Diagnostic{
 			Category: RuleExports,
 			Pos:      obj.Pos(),
 			Message: label + " exposes " + rules.Resolver.Describe(path) +
-				describePath(rules, path) + ", which " + component + " may not export",
+				describePath(rules, path) + ", which " + component + " may not export" +
+				because(bad[path]),
 		})
 	}
 }

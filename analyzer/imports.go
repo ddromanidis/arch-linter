@@ -3,6 +3,8 @@ package analyzer
 import (
 	"strconv"
 
+	"github.com/ddromanidis/arch-linter/config"
+
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -23,7 +25,8 @@ func (c *checker) checkImports() {
 			if err != nil {
 				continue
 			}
-			if rules.Resolver.AllowsImport(component, path) {
+			verdict := rules.Resolver.CheckImport(component, path)
+			if verdict == config.Allowed {
 				continue
 			}
 			c.target = path
@@ -32,10 +35,23 @@ func (c *checker) checkImports() {
 				Pos:      spec.Pos(),
 				End:      spec.End(),
 				Message: component + " may not import " +
-					rules.Resolver.Describe(path) + describePath(rules, path),
+					rules.Resolver.Describe(path) + describePath(rules, path) +
+					because(verdict),
 			})
 		}
 	}
+}
+
+// because names the rule that produced a verdict.
+//
+// A banned import and an undeclared one need opposite fixes — delete the line of Go, or
+// add a line to arch.yaml — and a message that did not distinguish them would send people
+// to the wrong file.
+func because(v config.Verdict) string {
+	if v == config.Denied {
+		return " (denied)"
+	}
+	return ""
 }
 
 // describePath adds the import path in parentheses when Describe returned a component name,
