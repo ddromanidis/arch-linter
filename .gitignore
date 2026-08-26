@@ -1,0 +1,4 @@
+bin/
+.task/
+.DS_Store
+arch-lint
