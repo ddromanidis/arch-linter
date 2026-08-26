@@ -1,6 +1,11 @@
-bin/
-.task/
-coverage.out
+# Anchored to the repository root, all of them. An unanchored `arch-lint` matches any path
+# component with that name — including the cmd/arch-lint/ directory, which git then ignored
+# silently, so the main command was absent from every clone while building fine here.
+/bin/
+/.task/
+/coverage.out
+/arch-lint
+/arch-lint-vet
+/custom-gcl
+/.arch-baseline.yaml
 .DS_Store
-arch-lint
-.arch-baseline.yaml
