@@ -27,6 +27,12 @@ import (
 type Rules struct {
 	Resolver *config.Resolver
 	Config   *config.Config
+	// Arch is the parsed architecture, kept so whole-config checks — cycles — can be run
+	// without parsing the file a second time.
+	Arch *config.Arch
+	// ArchPath is where it came from, so a diagnostic about the architecture can point at
+	// the file that declares it rather than at some package that happens to be in one.
+	ArchPath string
 	// pkgExcludes are the non-file exclusion patterns, resolved to full import paths once.
 	pkgExcludes []string
 }
@@ -199,7 +205,12 @@ func Load(archPath, configPath string) (*Rules, error) {
 		return nil, err
 	}
 
-	rules := &Rules{Resolver: config.NewResolver(arch, module), Config: cfg}
+	rules := &Rules{
+		Resolver: config.NewResolver(arch, module),
+		Config:   cfg,
+		Arch:     arch,
+		ArchPath: archPath,
+	}
 	rules.compileExcludes()
 	return rules, nil
 }
@@ -279,6 +290,7 @@ const (
 	RuleImports = "imports"
 	RuleExports = "exports"
 	RuleWaivers = "waivers"
+	RuleCycles  = "cycles"
 )
 
 // Violation is the structured form of a diagnostic, returned as the analyzer's result so a

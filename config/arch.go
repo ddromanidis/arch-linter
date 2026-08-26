@@ -25,6 +25,18 @@ type Arch struct {
 	Module     string               `yaml:"module"`
 	Components map[string]Component `yaml:"components"`
 	Defaults   Defaults             `yaml:"defaults"`
+
+	// lines maps a component to the line it is declared on, so a diagnostic about the
+	// architecture can point at the architecture.
+	lines map[string]int
+}
+
+// ComponentLine is the line in arch.yaml where a component is declared, or 1 if unknown.
+func (a *Arch) ComponentLine(name string) int {
+	if n, ok := a.lines[name]; ok && n > 0 {
+		return n
+	}
+	return 1
 }
 
 // Component is one named region of the codebase.
@@ -89,7 +101,40 @@ func parseArch(data []byte, file string) (*Arch, error) {
 	if err := a.validate(file); err != nil {
 		return nil, err
 	}
+	// A second, non-strict pass purely for positions.
+	//
+	// Line numbers could have come from the first pass by making Component a
+	// yaml.Unmarshaler, but node-level decoding does not honour KnownFields, so unknown
+	// keys inside a component would stop being errors. That check is worth more than one
+	// convenient traversal: it is the whole reason the v1 config bug cannot recur here.
+	a.lines = componentLines(data)
 	return &a, nil
+}
+
+// componentLines finds the line each component is declared on. Best effort — the strict
+// pass has already established the file is valid, so a failure here costs a position, not
+// a diagnostic.
+func componentLines(data []byte) map[string]int {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	if len(doc.Content) == 0 {
+		return nil
+	}
+	root := doc.Content[0]
+	out := map[string]int{}
+	// A mapping node alternates key, value, key, value.
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "components" {
+			continue
+		}
+		components := root.Content[i+1]
+		for j := 0; j+1 < len(components.Content); j += 2 {
+			out[components.Content[j].Value] = components.Content[j].Line
+		}
+	}
+	return out
 }
 
 func (a *Arch) validate(file string) error {

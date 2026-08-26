@@ -27,6 +27,35 @@ const Mode = packages.NeedName |
 	packages.NeedDeps |
 	packages.NeedModule
 
+// Cycles reports dependency loops in the declared component graph.
+//
+// Separate from Analyse and run once, because a cycle is a property of arch.yaml rather
+// than of any package — reporting it from the per-package analyzer would repeat the same
+// loop once for every package in the module. It also needs no code and no build, so it
+// answers instantly and works on a repository that does not compile.
+func Cycles(rules *analyzer.Rules) []report.Finding {
+	if rules.Config.Severity.Cycles == config.Off || rules.Arch == nil {
+		return nil
+	}
+	var out []report.Finding
+	for _, cycle := range rules.Arch.Cycles() {
+		// Anchored at the first component in the loop, which is the alphabetically
+		// smallest, so the anchor is stable rather than an artefact of walk order.
+		head := cycle[0]
+		out = append(out, report.Finding{
+			Rule:      analyzer.RuleCycles,
+			Component: head,
+			Target:    cycle.String(),
+			File:      rules.ArchPath,
+			Line:      rules.Arch.ComponentLine(head),
+			Column:    1,
+			Message:   "dependency cycle: " + cycle.String(),
+			Severity:  string(rules.Config.Severity.Cycles),
+		})
+	}
+	return out
+}
+
 // Analyse loads patterns and returns every violation.
 func Analyse(dir string, patterns []string, rules *analyzer.Rules) ([]report.Finding, error) {
 	cfg := &packages.Config{Dir: dir, Mode: Mode, Tests: rules.Config.IncludeTests}
@@ -109,6 +138,8 @@ func severityOf(category string, cfg *config.Config) config.Severity {
 		return cfg.Severity.Imports
 	case analyzer.RuleWaivers:
 		return cfg.Severity.Waivers
+	case analyzer.RuleCycles:
+		return cfg.Severity.Cycles
 	}
 	return cfg.Severity.Exports
 }

@@ -230,10 +230,38 @@ graph TD
   c_driver --> c_report
 ```
 
+## Cycles
+
+Go already refuses import cycles between **packages**. It cannot see a cycle between
+**components**, because a component is several packages:
+
+```
+component app                    component support
+  app/ctx.go   ───────────────▶    support/log.go
+  app/user.go  ◀───────────────    support/audit.go
+```
+
+Nothing imports itself transitively, so that compiles. But `app` and `support` are now
+mutually dependent, and neither can be understood, tested or extracted without the other —
+which is the thing layering exists to prevent, and the compiler is structurally incapable
+of noticing.
+
+```
+arch.yaml:28:1  error  dependency cycle: app → events → support → app  [cycles]
+```
+
+Checked against the *declared* graph rather than the real imports, because the declared
+graph is a superset: nothing can import what it has not declared, so a config without
+cycles guarantees code without them. That also means it needs no build and answers
+instantly — and it is reported even when the packages fail to compile, which is exactly
+when you most want to know the architecture itself is sound.
+
+Reported by the standalone command only. A cycle is a property of `arch.yaml` rather than
+of any one package, so emitting it from the per-package analyzer would repeat the same loop
+once for every package in the module.
+
 ## What it does not do
 
-- **Cycles between components.** The allowlists make most cycles unexpressible, but there
-  is no dedicated check.
 - **Unclassified packages.** A package no component claims has no rules and is not
   reported; otherwise adoption would be an exercise in silencing it.
 - **Test files**, unless `include-tests: true`. Tests routinely and correctly reach across

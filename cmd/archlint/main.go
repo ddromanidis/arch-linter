@@ -186,10 +186,20 @@ func lint(o options) error {
 		rules.Config.Output.Format = format
 	}
 
-	findings, err := run.Analyse(wd, patterns, rules)
+	// Cycles first. They are a property of the architecture rather than of the code, so
+	// they are reported even when the packages fail to load — which is exactly when you
+	// most want to know the architecture itself is sound.
+	findings := run.Cycles(rules)
+
+	analysed, err := run.Analyse(wd, patterns, rules)
 	if err != nil {
+		if len(findings) > 0 {
+			// Say what was learned before saying what could not be.
+			_ = report.Write(os.Stderr, "text", findings, filepath.Dir(archPath), false)
+		}
 		return err
 	}
+	findings = append(findings, analysed...)
 
 	// Anything switched off is dropped here rather than at the point of detection, so that
 	// a future baseline can still see what a rule *would* have said.

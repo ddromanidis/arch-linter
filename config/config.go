@@ -56,6 +56,9 @@ type Severities struct {
 	// default: stale waivers are worth knowing about but are not themselves an
 	// architecture violation, and failing a build over one would be perverse.
 	Waivers Severity `yaml:"waivers"`
+	// Cycles reports dependency loops between components. A property of arch.yaml rather
+	// than of any package, so it is checked once per run.
+	Cycles Severity `yaml:"cycles"`
 }
 
 // Default is the configuration used when no arch.config.yaml exists, which should be the
@@ -64,7 +67,7 @@ func Default() *Config {
 	return &Config{
 		Version:  1,
 		Output:   Output{Format: "text", Color: "auto"},
-		Severity: Severities{Imports: Error, Exports: Error, Waivers: Warning},
+		Severity: Severities{Imports: Error, Exports: Error, Waivers: Warning, Cycles: Error},
 		Baseline: "",
 	}
 }
@@ -114,6 +117,7 @@ func (c *Config) validate(file string) error {
 		"imports": c.Severity.Imports,
 		"exports": c.Severity.Exports,
 		"waivers": c.Severity.Waivers,
+		"cycles":  c.Severity.Cycles,
 	} {
 		if !s.valid() {
 			return fmt.Errorf("%s: severity.%s must be error, warning or off, got %q",
