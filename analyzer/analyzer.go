@@ -53,6 +53,11 @@ func (r *Rules) compileExcludes() {
 	}
 }
 
+// Excluded reports whether a package is excluded from analysis entirely. Exported so the
+// driver does not report an excluded package as unclassified — it was deliberately left
+// out, which is the opposite of overlooked.
+func (r *Rules) Excluded(importPath string) bool { return r.skipPackage(importPath) }
+
 // skipPackage reports whether a package is excluded from analysis entirely.
 func (r *Rules) skipPackage(importPath string) bool {
 	for _, base := range r.pkgExcludes {
@@ -291,6 +296,10 @@ const (
 	RuleExports = "exports"
 	RuleWaivers = "waivers"
 	RuleCycles  = "cycles"
+	// RuleCoverage: a component that matched no package, so its rules never ran.
+	RuleCoverage = "coverage"
+	// RuleUnclassified: a package no component claims, so no rule applies to it.
+	RuleUnclassified = "unclassified"
 )
 
 // Violation is the structured form of a diagnostic, returned as the analyzer's result so a

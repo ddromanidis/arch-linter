@@ -59,7 +59,7 @@ func TestCLIAndVetToolAgree(t *testing.T) {
 	}
 
 	// The CLI, as JSON so the comparison is on structure rather than on formatting.
-	cmd := exec.Command(cli, "-format", "json", "./internal/infra")
+	cmd := exec.Command(cli, "--format", "json", "./internal/infra")
 	cmd.Dir = dir
 	stdout, _ := cmd.Output() // exit 1 is expected: the fixture violates on purpose
 	var cliFindings []finding
@@ -139,16 +139,16 @@ func TestBaselineRoundTripThroughTheCLI(t *testing.T) {
 		return string(out), err == nil
 	}
 
-	if _, ok := run("-baseline", bl, "./internal/infra"); ok {
+	if _, ok := run("--baseline", bl, "./internal/infra"); ok {
 		t.Fatal("the fixture violates, so this must fail before a baseline exists")
 	}
-	if out, ok := run("baseline", "-baseline", bl, "./internal/infra"); !ok {
+	if out, ok := run("baseline", "--baseline", bl, "./internal/infra"); !ok {
 		t.Fatalf("writing a baseline should succeed: %s", out)
 	}
 	if _, err := os.Stat(bl); err != nil {
 		t.Fatalf("no baseline written: %v", err)
 	}
-	out, ok := run("-baseline", bl, "./internal/infra")
+	out, ok := run("--baseline", bl, "./internal/infra")
 	if !ok {
 		t.Errorf("everything is frozen, so the run must pass:\n%s", out)
 	}

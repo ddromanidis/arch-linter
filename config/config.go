@@ -59,15 +59,32 @@ type Severities struct {
 	// Cycles reports dependency loops between components. A property of arch.yaml rather
 	// than of any package, so it is checked once per run.
 	Cycles Severity `yaml:"cycles"`
+	// Coverage reports a declared component whose path pattern matches no package. An
+	// error by default, because it is always a mistake: a misspelled path produces a
+	// component with rules that can never fire, which is indistinguishable from a
+	// component that is enforced and clean.
+	Coverage Severity `yaml:"coverage"`
+	// Unclassified reports packages inside the module that no component claims. Off by
+	// default — switching it on for a repository mid-adoption would report every corner
+	// nobody has got to yet, which is the behaviour that makes people uninstall a linter.
+	// Worth turning on once the architecture is fully described, to keep it that way.
+	Unclassified Severity `yaml:"unclassified"`
 }
 
 // Default is the configuration used when no arch.config.yaml exists, which should be the
 // common case — the file exists to change something, not to state the obvious.
 func Default() *Config {
 	return &Config{
-		Version:  1,
-		Output:   Output{Format: "text", Color: "auto"},
-		Severity: Severities{Imports: Error, Exports: Error, Waivers: Warning, Cycles: Error},
+		Version: 1,
+		Output:  Output{Format: "text", Color: "auto"},
+		Severity: Severities{
+			Imports:      Error,
+			Exports:      Error,
+			Waivers:      Warning,
+			Cycles:       Error,
+			Coverage:     Error,
+			Unclassified: Off,
+		},
 		Baseline: "",
 	}
 }
@@ -114,10 +131,12 @@ func (c *Config) validate(file string) error {
 		return fmt.Errorf("%s: color must be auto, always or never, got %q", file, c.Output.Color)
 	}
 	for name, s := range map[string]Severity{
-		"imports": c.Severity.Imports,
-		"exports": c.Severity.Exports,
-		"waivers": c.Severity.Waivers,
-		"cycles":  c.Severity.Cycles,
+		"imports":      c.Severity.Imports,
+		"exports":      c.Severity.Exports,
+		"waivers":      c.Severity.Waivers,
+		"cycles":       c.Severity.Cycles,
+		"coverage":     c.Severity.Coverage,
+		"unclassified": c.Severity.Unclassified,
 	} {
 		if !s.valid() {
 			return fmt.Errorf("%s: severity.%s must be error, warning or off, got %q",

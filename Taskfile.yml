@@ -2,7 +2,7 @@ version: "3"
 
 vars:
   BIN: bin/archlint
-  # Stamped into the binary, so `archlint -version` says something useful from a checkout
+  # Stamped into the binary, so `archlint --version` says something useful from a checkout
   # as well as from a release.
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev

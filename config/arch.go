@@ -31,6 +31,16 @@ type Arch struct {
 	lines map[string]int
 }
 
+// ComponentNames returns every declared component, sorted.
+func (a *Arch) ComponentNames() []string {
+	out := make([]string, 0, len(a.Components))
+	for name := range a.Components {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // ComponentLine is the line in arch.yaml where a component is declared, or 1 if unknown.
 func (a *Arch) ComponentLine(name string) int {
 	if n, ok := a.lines[name]; ok && n > 0 {

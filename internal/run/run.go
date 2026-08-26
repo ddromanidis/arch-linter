@@ -8,6 +8,7 @@ package run
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/ddromanidis/arch-linter/analyzer"
@@ -56,9 +57,78 @@ func Cycles(rules *analyzer.Rules) []report.Finding {
 	return out
 }
 
+// Coverage reports components that matched nothing and packages nothing claimed.
+//
+// Both are silent failures of the same kind, and the kind this tool exists to prevent: a
+// component whose path is misspelled has rules that can never fire, and a package no
+// component claims has no rules at all. Neither is distinguishable from "enforced and
+// clean" by looking at the output, which is the worst property a linter can have.
+//
+// wholeModule guards the first check. Running `archlint ./internal/app` legitimately
+// matches only one component, and reporting the other twelve as dead would make targeted
+// runs useless.
+func coverage(
+	rules *analyzer.Rules,
+	matched map[string]bool,
+	unclassified []string,
+	wholeModule bool,
+) []report.Finding {
+	var out []report.Finding
+	cfg := rules.Config
+
+	if wholeModule && cfg.Severity.Coverage != config.Off && rules.Arch != nil {
+		for _, name := range rules.Arch.ComponentNames() {
+			if matched[name] {
+				continue
+			}
+			out = append(out, report.Finding{
+				Rule:      analyzer.RuleCoverage,
+				Component: name,
+				Target:    name,
+				File:      rules.ArchPath,
+				Line:      rules.Arch.ComponentLine(name),
+				Column:    1,
+				Message: "component " + name + " matched no packages — its rules never ran" +
+					" (check the path)",
+				Severity: string(cfg.Severity.Coverage),
+			})
+		}
+	}
+
+	if cfg.Severity.Unclassified != config.Off {
+		for _, pkg := range unclassified {
+			out = append(out, report.Finding{
+				Rule:     analyzer.RuleUnclassified,
+				Target:   pkg,
+				File:     rules.ArchPath,
+				Line:     1,
+				Column:   1,
+				Message:  pkg + " belongs to no component, so no rule applies to it",
+				Severity: string(cfg.Severity.Unclassified),
+			})
+		}
+	}
+	return out
+}
+
 // Analyse loads patterns and returns every violation.
-func Analyse(dir string, patterns []string, rules *analyzer.Rules) ([]report.Finding, error) {
+//
+// wholeModule says whether the patterns cover the entire module, which decides whether a
+// component matching nothing is evidence of a mistake or just of a narrow run.
+func Analyse(
+	dir string,
+	patterns []string,
+	rules *analyzer.Rules,
+	wholeModule bool,
+	tags []string,
+) ([]report.Finding, error) {
 	cfg := &packages.Config{Dir: dir, Mode: Mode, Tests: rules.Config.IncludeTests}
+	// Build tags. Without these, a repository built two ways — a control plane and a
+	// tenant, say — has one of them silently unanalysed, and the half you did not ask for
+	// looks exactly like a half with no violations.
+	if len(tags) > 0 {
+		cfg.BuildFlags = []string{"-tags=" + strings.Join(tags, ",")}
+	}
 	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return nil, fmt.Errorf("loading packages: %w", err)
@@ -80,12 +150,25 @@ func Analyse(dir string, patterns []string, rules *analyzer.Rules) ([]report.Fin
 
 	a := analyzer.New(rules)
 	var findings []report.Finding
+	matched := map[string]bool{}
+	var unclassified []string
 
 	for _, pkg := range pkgs {
 		if len(pkg.Syntax) == 0 {
 			continue
 		}
 		component := rules.Resolver.Component(pkg.PkgPath)
+		switch {
+		case component != "":
+			matched[component] = true
+		case !rules.Excluded(pkg.PkgPath):
+			// Only packages inside this module. Dependencies are nobody's component and
+			// reporting them would be absurd.
+			if mod := rules.Resolver.Module(); mod != "" &&
+				(pkg.PkgPath == mod || strings.HasPrefix(pkg.PkgPath, mod+"/")) {
+				unclassified = append(unclassified, pkg.PkgPath)
+			}
+		}
 		pass := &analysis.Pass{
 			Analyzer:   a,
 			Fset:       pkg.Fset,
@@ -119,6 +202,8 @@ func Analyse(dir string, patterns []string, rules *analyzer.Rules) ([]report.Fin
 			})
 		}
 	}
+	sort.Strings(unclassified)
+	findings = append(findings, coverage(rules, matched, unclassified, wholeModule)...)
 	return findings, nil
 }
 

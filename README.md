@@ -62,7 +62,7 @@ go install github.com/ddromanidis/arch-linter/cmd/archlint@latest
 ## Use
 
 ```sh
-archlint init -preset hexagonal   # write a starting arch.yaml
+archlint init --preset hexagonal   # write a starting arch.yaml
 archlint                          # check ./...
 archlint diagram                  # print the component graph as Mermaid
 ```
@@ -204,7 +204,7 @@ true.
 **Standalone** — full output formats, baseline, diagrams:
 
 ```sh
-archlint -format github ./...
+archlint --format github ./...
 ```
 
 **go vet:**
@@ -301,9 +301,40 @@ Reported by the standalone command only. A cycle is a property of `arch.yaml` ra
 of any one package, so emitting it from the per-package analyzer would repeat the same loop
 once for every package in the module.
 
+## Knowing the rules actually ran
+
+A component whose `path` is misspelled matches no packages, so its rules never fire — and
+that is indistinguishable from a component that is enforced and clean. Reported by default:
+
+```
+arch.yaml:6:1  error  component typo matched no packages — its rules never ran (check the path)  [coverage]
+```
+
+Only on a whole-module run, since `archlint ./internal/app` legitimately matches one
+component and reporting the other twelve as dead would make targeted runs useless.
+
+Packages that no component claims are skipped rather than reported, so the tool can be
+adopted gradually. Once the architecture is fully described, `severity.unclassified` turns
+that into a warning and keeps it that way:
+
+```
+arch.yaml:1:1  warning  example.com/m/internal/orphan belongs to no component, so no rule applies to it  [unclassified]
+```
+
+### Build tags
+
+`--tags` is passed through to the loader. A repository built two ways — a control plane and
+a tenant, say — has one variant silently unanalysed otherwise, and the half you did not ask
+for looks exactly like a half with no violations:
+
+```sh
+archlint ./...
+archlint --tags control ./...
+```
+
 ## What it does not do
 
-- **Unclassified packages.** A package no component claims has no rules and is not
+- **Unclassified packages by default.** A package no component claims has no rules and is not
   reported; otherwise adoption would be an exercise in silencing it.
 - **Test files**, unless `include-tests: true`. Tests routinely and correctly reach across
   boundaries their production code may not.

@@ -69,6 +69,8 @@ components:
       - diagram
       - scaffold
       - golang.org/x/term
+      - github.com/spf13/cobra
+      - slices
       # cmd/archlint-vet is a unitchecker, so `go vet` can drive the same rules.
       - golang.org/x/tools/go/analysis/singlechecker
     exports: []
