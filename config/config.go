@@ -71,6 +71,51 @@ type Severities struct {
 	Unclassified Severity `yaml:"unclassified"`
 }
 
+// For returns the severity of a rule, honouring a component's override.
+//
+// A zero Severity means the component said nothing about that rule, so the global applies.
+func (s Severities) For(rule string) Severity {
+	switch rule {
+	case "imports":
+		return s.Imports
+	case "exports":
+		return s.Exports
+	case "waivers":
+		return s.Waivers
+	case "cycles":
+		return s.Cycles
+	case "coverage":
+		return s.Coverage
+	case "unclassified":
+		return s.Unclassified
+	}
+	return ""
+}
+
+// Override returns s with any non-empty field of over applied on top.
+func (s Severities) Override(over *Severities) Severities {
+	if over == nil {
+		return s
+	}
+	out := s
+	for _, f := range []struct {
+		dst *Severity
+		src Severity
+	}{
+		{&out.Imports, over.Imports},
+		{&out.Exports, over.Exports},
+		{&out.Waivers, over.Waivers},
+		{&out.Cycles, over.Cycles},
+		{&out.Coverage, over.Coverage},
+		{&out.Unclassified, over.Unclassified},
+	} {
+		if f.src != "" {
+			*f.dst = f.src
+		}
+	}
+	return out
+}
+
 // Default is the configuration used when no arch.config.yaml exists, which should be the
 // common case — the file exists to change something, not to state the obvious.
 func Default() *Config {

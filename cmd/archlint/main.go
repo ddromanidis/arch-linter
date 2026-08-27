@@ -31,6 +31,7 @@ var (
 	baselinePath string
 	buildTags    string
 	preset       string
+	importsOnly  bool
 )
 
 func main() {
@@ -73,8 +74,10 @@ tool could not run at all — bad config, or code that does not compile.`,
 	pf.StringVar(&format, "format", "", "output format: text, json, github or sarif")
 	pf.StringVar(&baselinePath, "baseline", "", "baseline file (overrides arch.config.yaml)")
 	pf.StringVar(&buildTags, "tags", "", "comma-separated build tags, as `go build -tags`")
+	cmd.Flags().BoolVar(&importsOnly, "imports-only", false,
+		"skip type checking: import rules only, fast enough for a pre-commit hook")
 
-	cmd.AddCommand(baselineCmd(), initCmd(), diagramCmd())
+	cmd.AddCommand(baselineCmd(), initCmd(), diagramCmd(), explainCmd())
 	return cmd
 }
 
@@ -129,6 +132,78 @@ not re-exported.`,
 	}
 }
 
+func explainCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "explain <component> <package>",
+		Short: "Say which rule decides whether a component may reach a package",
+		Long: `Answers both questions for one pair, and names the rule that decided.
+
+  archlint explain infra gorm.io/gorm
+
+Debugging a config by deleting lines until the behaviour changes is what people do when a
+tool will only say yes or no. The resolver already knows why; this makes it say so.`,
+		Args:         cobra.ExactArgs(2),
+		SilenceUsage: true,
+		RunE: func(_ *cobra.Command, args []string) error {
+			return explain(args[0], args[1])
+		},
+	}
+}
+
+func explain(component, pkg string) error {
+	rules, _, err := load()
+	if err != nil {
+		return err
+	}
+	res := rules.Resolver
+	if !res.Known(component) {
+		return fmt.Errorf("no component %q in %s", component, rules.ArchPath)
+	}
+
+	fmt.Printf("%s  →  %s\n", component, pkg)
+	if owner := res.Component(pkg); owner != "" {
+		fmt.Printf("  that package belongs to component %q\n", owner)
+	} else if pkg != "" {
+		fmt.Printf("  that package belongs to no component\n")
+	}
+	fmt.Println()
+
+	// Widest claim decides the column, so it never wraps or staggers.
+	width := len(component) + len(" may not expose")
+
+	for _, q := range []struct {
+		what   string
+		reason config.Reason
+		sev    config.Severity
+	}{
+		{"import", res.ExplainImport(component, pkg), rules.SeverityFor(component, analyzer.RuleImports)},
+		{"expose", res.ExplainExport(component, pkg), rules.SeverityFor(component, analyzer.RuleExports)},
+	} {
+		verdict := "may not " + q.what
+		if q.reason.Verdict == config.Allowed {
+			verdict = "may " + q.what
+		}
+		// One column for the claim, one for the reason, so the two lines line up and the
+		// difference between them is what you read rather than what you hunt for.
+		claim := fmt.Sprintf("%s %s", component, verdict)
+		fmt.Printf("  %-*s  %s\n", width, claim, describeReason(q.reason))
+		if q.reason.Verdict != config.Allowed {
+			fmt.Printf("  %-*s  reported as: %s\n", width, "", q.sev)
+		}
+	}
+	return nil
+}
+
+func describeReason(r config.Reason) string {
+	switch r.Rule {
+	case config.ReasonSameComponent, config.ReasonUnknown, config.ReasonNotOnAnyList:
+		return "(" + r.Rule + ")"
+	case config.ReasonUnconstrained:
+		return "(" + r.Rule + " — " + r.Source + " is absent)"
+	}
+	return "matched `" + r.Rule + "` in " + r.Source
+}
+
 // load finds arch.yaml and reads both config files.
 func load() (*analyzer.Rules, string, error) {
 	wd, err := os.Getwd()
@@ -168,7 +243,7 @@ func analyse(rules *analyzer.Rules, wd string, args []string) ([]report.Finding,
 	// most want to know the architecture itself is sound.
 	findings := run.Cycles(rules)
 
-	analysed, err := run.Analyse(wd, patterns, rules, whole, splitTags(buildTags))
+	analysed, err := run.Analyse(wd, patterns, rules, whole, splitTags(buildTags), importsOnly)
 	if err != nil {
 		if len(findings) > 0 {
 			// Say what was learned before saying what could not be.

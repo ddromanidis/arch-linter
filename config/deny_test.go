@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Omitting a rule list and writing it empty are different statements. This is the whole
 // point of the distinction: `imports: []` locks a component down, omitting `imports` says
@@ -208,5 +211,136 @@ components:
 	r := NewResolver(a, "")
 	if r.AllowsImport("a", "fmt") {
 		t.Error("no defaults means no defaults, not free rein")
+	}
+}
+
+// Per-component severity is what makes a rule adoptable layer by layer: domain at error
+// because it is already clean, adapters at warning because it is a goal. A baseline says
+// "not these existing violations"; only this says "this layer is aspirational".
+func TestPerComponentSeverityOverridesGlobal(t *testing.T) {
+	a := arch(t, `
+components:
+  domain:
+    path: d/...
+    imports: []
+  adapters:
+    path: a/...
+    imports: []
+    severity:
+      exports: warning
+      imports: "off"
+`)
+	global := Severities{Imports: Error, Exports: Error, Waivers: Warning}
+
+	// A component that says nothing keeps the global settings.
+	kept := global.Override(a.Components["domain"].Severity)
+	if kept.Imports != Error || kept.Exports != Error {
+		t.Errorf("domain should keep the global severities, got %+v", kept)
+	}
+
+	over := global.Override(a.Components["adapters"].Severity)
+	if over.Exports != Warning {
+		t.Errorf("exports = %q, want warning", over.Exports)
+	}
+	if over.Imports != Off {
+		t.Errorf("imports = %q, want off", over.Imports)
+	}
+	// Unmentioned rules are untouched.
+	if over.Waivers != Warning {
+		t.Errorf("waivers = %q, want the global warning", over.Waivers)
+	}
+}
+
+func TestInvalidComponentSeverityIsRejected(t *testing.T) {
+	_, err := parseArch([]byte(`
+version: 1
+components:
+  a:
+    path: a/...
+    severity:
+      exports: loud
+`), "arch.yaml")
+	if err == nil || !strings.Contains(err.Error(), "severity.exports") {
+		t.Errorf("got %v, want a complaint about severity.exports", err)
+	}
+}
+
+// explain has to name the rule that decided, not merely the outcome — that is the whole
+// reason it exists rather than a second way to ask the same yes/no.
+func TestExplainNamesTheDecidingRule(t *testing.T) {
+	a := arch(t, `
+components:
+  infra:
+    path: i/...
+    imports: [std, "gorm.io/gorm", domain]
+    exports: [domain]
+    deny: [unsafe]
+  domain:
+    path: d/...
+    imports: []
+  loose:
+    path: l/...
+defaults:
+  imports: [fmt]
+`)
+	r := NewResolver(a, "")
+
+	for _, tc := range []struct {
+		name          string
+		got           Reason
+		wantVerdict   Verdict
+		wantRule      string
+		wantSourceHas string
+	}{
+		{"explicit allow", r.ExplainImport("infra", "gorm.io/gorm"),
+			Allowed, "gorm.io/gorm", "infra.imports"},
+		{"component name", r.ExplainImport("infra", "example.test/m/d"),
+			Allowed, "domain", "infra.imports"},
+		{"std keyword", r.ExplainImport("infra", "net/http"),
+			Allowed, StdKeyword, "infra.imports"},
+		{"defaults", r.ExplainImport("domain", "fmt"),
+			Allowed, "fmt", "defaults.imports"},
+		{"deny wins", r.ExplainImport("infra", "unsafe"),
+			Denied, "unsafe", "infra.deny"},
+		{"not on any list", r.ExplainExport("infra", "gorm.io/gorm"),
+			NotDeclared, ReasonNotOnAnyList, ""},
+		{"same component", r.ExplainImport("domain", "example.test/m/d/sub"),
+			Allowed, ReasonSameComponent, ""},
+		{"unconstrained", r.ExplainImport("loose", "anything.io/x"),
+			Allowed, ReasonUnconstrained, "loose.imports"},
+		{"unknown component", r.ExplainImport("nope", "fmt"),
+			NotDeclared, ReasonUnknown, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.got.Verdict != tc.wantVerdict {
+				t.Errorf("verdict = %v, want %v", tc.got.Verdict, tc.wantVerdict)
+			}
+			if tc.got.Rule != tc.wantRule {
+				t.Errorf("rule = %q, want %q", tc.got.Rule, tc.wantRule)
+			}
+			if tc.wantSourceHas != "" && !strings.Contains(tc.got.Source, tc.wantSourceHas) {
+				t.Errorf("source = %q, want it to mention %q", tc.got.Source, tc.wantSourceHas)
+			}
+		})
+	}
+}
+
+// The subtle one: an import permitted only because exporting implies importing should say
+// so, rather than claiming an import rule allowed it.
+func TestExplainSurfacesTheExportImplication(t *testing.T) {
+	a := arch(t, `
+components:
+  a:
+    path: a/...
+    imports: []
+    exports: [time]
+`)
+	r := NewResolver(a, "")
+	got := r.ExplainImport("a", "time")
+	if got.Verdict != Allowed {
+		t.Fatalf("verdict = %v, want Allowed", got.Verdict)
+	}
+	if !strings.Contains(got.Source, "exports") {
+		t.Errorf("source = %q, want it to attribute the export rule", got.Source)
 	}
 }

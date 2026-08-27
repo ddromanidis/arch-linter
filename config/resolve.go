@@ -273,3 +273,103 @@ func (r *Resolver) Describe(importPath string) string {
 	}
 	return importPath
 }
+
+// Reason is a Verdict with its cause: which rule decided, and how.
+//
+// Debugging a config by deleting lines until the behaviour changes is miserable, and it is
+// what people do when a tool will only tell them yes or no. The resolver already knows why;
+// it just did not say.
+type Reason struct {
+	Verdict Verdict
+	// Rule names the entry that decided — a component name, an import path, a prefix
+	// pattern, `std`, or one of the pseudo-rules below.
+	Rule string
+	// Where it was written: "defaults", the component's own name, or "" when nothing
+	// matched and the answer is simply that no rule permits it.
+	Source string
+}
+
+// Pseudo-rules, for decisions no config line produced.
+const (
+	ReasonSameComponent = "the component reaches itself"
+	ReasonUnconstrained = "no rule declared, so nothing is constrained"
+	ReasonUnknown       = "no such component"
+	ReasonNotOnAnyList  = "not on any allowlist"
+)
+
+// ExplainImport says why an import is or is not permitted.
+func (r *Resolver) ExplainImport(from, importPath string) Reason {
+	return r.explain(from, importPath, false)
+}
+
+// ExplainExport says why exposing a package is or is not permitted.
+func (r *Resolver) ExplainExport(from, importPath string) Reason {
+	return r.explain(from, importPath, true)
+}
+
+func (r *Resolver) explain(from, importPath string, export bool) Reason {
+	target := r.Component(importPath)
+
+	// Deny first, because it beats everything else and the answer would be misleading if
+	// reported in any other order.
+	if rule, ok := r.defaults.deny.why(target, importPath); ok {
+		return Reason{Denied, rule, "defaults.deny"}
+	}
+	rules, known := r.rules[from]
+	if known {
+		if rule, ok := rules.deny.why(target, importPath); ok {
+			return Reason{Denied, rule, from + ".deny"}
+		}
+	}
+	if !known {
+		return Reason{NotDeclared, ReasonUnknown, ""}
+	}
+	if target != "" && target == from {
+		return Reason{Allowed, ReasonSameComponent, ""}
+	}
+
+	kind := "imports"
+	pick := func(c componentRules) matcher { return c.imports }
+	if export {
+		kind, pick = "exports", func(c componentRules) matcher { return c.exports }
+	}
+
+	if pick(rules).unconstrained {
+		return Reason{Allowed, ReasonUnconstrained, from + "." + kind}
+	}
+	if rule, ok := pick(r.defaults).why(target, importPath); ok {
+		return Reason{Allowed, rule, "defaults." + kind}
+	}
+	if rule, ok := pick(rules).why(target, importPath); ok {
+		return Reason{Allowed, rule, from + "." + kind}
+	}
+	// An import may also be permitted by an export rule, since exposing implies importing.
+	if !export && !rules.exports.unconstrained {
+		if rule, ok := r.defaults.exports.why(target, importPath); ok {
+			return Reason{Allowed, rule, "defaults.exports (exporting implies importing)"}
+		}
+		if rule, ok := rules.exports.why(target, importPath); ok {
+			return Reason{Allowed, rule, from + ".exports (exporting implies importing)"}
+		}
+	}
+	return Reason{NotDeclared, ReasonNotOnAnyList, ""}
+}
+
+// why is allows, but reporting which entry matched.
+func (m matcher) why(component, importPath string) (string, bool) {
+	if component != "" && m.names[component] {
+		return component, true
+	}
+	if m.std && isStdlib(importPath) {
+		return StdKeyword, true
+	}
+	if m.exact[importPath] {
+		return importPath, true
+	}
+	for _, p := range m.prefixes {
+		if importPath == p || strings.HasPrefix(importPath, p+"/") {
+			return p + "/...", true
+		}
+	}
+	return "", false
+}

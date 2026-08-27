@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"go/token"
+
+	"github.com/ddromanidis/arch-linter/config"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -144,7 +146,7 @@ func (c *checker) report(d analysis.Diagnostic) {
 // suppresses nothing is a lie about the code that will be believed by the next person to
 // read it — usually left behind by the very fix that made it unnecessary.
 func (c *checker) reportWaiverProblems() {
-	if c.rules.Config.Severity.Waivers == "off" {
+	if c.rules.SeverityFor(c.component, RuleWaivers) == config.Off {
 		return
 	}
 	for _, item := range c.waivers.malformed {

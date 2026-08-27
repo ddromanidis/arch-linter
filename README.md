@@ -321,6 +321,57 @@ that into a warning and keeps it that way:
 arch.yaml:1:1  warning  example.com/m/internal/orphan belongs to no component, so no rule applies to it  [unclassified]
 ```
 
+### Adopting a layer at a time
+
+Severity is global by default, but a component can override it. A baseline says *not these
+existing violations*; this says *this layer is a goal, not yet a promise*, which is often
+the more honest statement:
+
+```yaml
+components:
+  domain:
+    imports: []          # already clean — keep it at error
+
+  adapters:
+    imports: [domain, gorm.io/gorm]
+    severity:
+      exports: warning   # aspirational: reported, does not fail the build
+```
+
+It lives in `arch.yaml` rather than `arch.config.yaml` because it is a claim about a
+component, and belongs beside the rules it modifies.
+
+### Why did that happen?
+
+When a rule does not fire, `explain` names the entry that decided:
+
+```
+$ archlint explain infra shop/driver
+infra  →  shop/driver
+  that package belongs to no component
+
+  infra may import      matched `shop/driver` in infra.imports
+  infra may not expose  (not on any allowlist)
+                        reported as: error
+```
+
+Debugging a config by deleting lines until the behaviour changes is what people do when a
+tool will only say yes or no.
+
+### A pre-commit hook
+
+`--imports-only` skips type checking entirely. Import rules need no types — a file's import
+block is the whole answer — so it is several times faster, at the cost of the export rule,
+which cannot be answered without resolving types:
+
+```sh
+archlint --imports-only ./...     # 0.46s on a 161-package module
+archlint ./...                    # 1.78s, both rules
+```
+
+Fast enough for a hook, with the full analysis in CI. It also works on a tree that does not
+compile yet, since the import block parses regardless.
+
 ### Build tags
 
 `--tags` is passed through to the loader. A repository built two ways — a control plane and

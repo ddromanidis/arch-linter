@@ -77,6 +77,16 @@ type Component struct {
 	// Omitted means unconstrained, as with Imports. Most components have no API surface
 	// worth restricting, and requiring every one of them to say so was noise.
 	Exports []string `yaml:"exports"`
+	// Severity overrides the global severity for this component only.
+	//
+	// What makes a rule adoptable layer by layer: `domain` at error because it is already
+	// clean, `adapters` at warning because it is aspirational. A baseline can say "not
+	// these existing violations"; only this can say "this layer is a goal, not yet a
+	// promise", which is a different and often more honest statement.
+	//
+	// Lives here rather than in arch.config.yaml because it is a claim about a component,
+	// and belongs beside the rules it modifies.
+	Severity *Severities `yaml:"severity"`
 	// Deny bans packages outright, for both importing and exporting, whatever the
 	// allowlists say.
 	//
@@ -211,6 +221,19 @@ func (a *Arch) validate(file string) error {
 			for _, r := range kind.rules {
 				if err := a.checkRule(file, name, kind.what, r); err != nil {
 					return err
+				}
+			}
+		}
+		if c.Severity != nil {
+			for rule, sev := range map[string]Severity{
+				"imports": c.Severity.Imports, "exports": c.Severity.Exports,
+				"waivers": c.Severity.Waivers, "cycles": c.Severity.Cycles,
+				"coverage": c.Severity.Coverage, "unclassified": c.Severity.Unclassified,
+			} {
+				if sev != "" && !sev.valid() {
+					return fmt.Errorf(
+						"%s: component %q: severity.%s must be error, warning or off, got %q",
+						file, name, rule, sev)
 				}
 			}
 		}

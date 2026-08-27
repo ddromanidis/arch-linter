@@ -53,6 +53,18 @@ func (r *Rules) compileExcludes() {
 	}
 }
 
+// SeverityFor returns the severity of a rule as it applies to one component, honouring a
+// per-component override in arch.yaml over the global setting.
+func (r *Rules) SeverityFor(component, rule string) config.Severity {
+	sev := r.Config.Severity
+	if r.Arch != nil && component != "" {
+		if c, ok := r.Arch.Components[component]; ok {
+			sev = sev.Override(c.Severity)
+		}
+	}
+	return sev.For(rule)
+}
+
 // Excluded reports whether a package is excluded from analysis entirely. Exported so the
 // driver does not report an excluded package as unclassified — it was deliberately left
 // out, which is the opposite of overlooked.
@@ -294,10 +306,12 @@ func run(pass *analysis.Pass, rules *Rules) (any, error) {
 		component: component,
 		waivers:   collectWaivers(pass),
 	}
-	if rules.Config.Severity.Imports != config.Off {
+	// Off is honoured here so a component can switch a rule off entirely; every other
+	// severity is applied by the driver, which is what turns a finding into an exit code.
+	if rules.SeverityFor(component, RuleImports) != config.Off {
 		c.checkImports()
 	}
-	if rules.Config.Severity.Exports != config.Off {
+	if rules.SeverityFor(component, RuleExports) != config.Off {
 		c.checkExports()
 	}
 	// Last, so that "used" is accurate: a waiver is only unused once both rules have had

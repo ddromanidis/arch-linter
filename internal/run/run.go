@@ -9,6 +9,7 @@ package run
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ddromanidis/arch-linter/analyzer"
@@ -90,7 +91,7 @@ func coverage(
 				Column:    1,
 				Message: "component " + name + " matched no packages — its rules never ran" +
 					" (check the path)",
-				Severity: string(cfg.Severity.Coverage),
+				Severity: string(rules.SeverityFor(name, analyzer.RuleCoverage)),
 			})
 		}
 	}
@@ -121,8 +122,19 @@ func Analyse(
 	rules *analyzer.Rules,
 	wholeModule bool,
 	tags []string,
+	importsOnly bool,
 ) ([]report.Finding, error) {
-	cfg := &packages.Config{Dir: dir, Mode: Mode, Tests: rules.Config.IncludeTests}
+	// Import rules need no types at all: a file's import block is the whole answer, and
+	// syntax gives it. Skipping the type checker is the difference between ~1.6s and
+	// ~100ms on a 160-package module, which is the difference between a pre-commit hook
+	// people keep and one they bypass. Export rules are dropped in this mode because they
+	// cannot be answered without resolving types — the point of the whole tool — so CI
+	// still has to run the full analysis.
+	mode := Mode
+	if importsOnly {
+		mode = packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedModule
+	}
+	cfg := &packages.Config{Dir: dir, Mode: mode, Tests: rules.Config.IncludeTests}
 	// Build tags. Without these, a repository built two ways — a control plane and a
 	// tenant, say — has one of them silently unanalysed, and the half you did not ask for
 	// looks exactly like a half with no violations.
@@ -143,6 +155,12 @@ func Analyse(
 			loadErrs = append(loadErrs, e.Error())
 		}
 	})
+	if importsOnly {
+		// Without type information a type error is not detectable and not relevant: the
+		// import block parses regardless, which is part of why this mode is useful on a
+		// tree that does not build yet.
+		loadErrs = nil
+	}
 	if len(loadErrs) > 0 {
 		return nil, fmt.Errorf("the packages do not type-check, so the architecture cannot be "+
 			"verified:\n  %s", strings.Join(loadErrs, "\n  "))
@@ -168,6 +186,11 @@ func Analyse(
 				(pkg.PkgPath == mod || strings.HasPrefix(pkg.PkgPath, mod+"/")) {
 				unclassified = append(unclassified, pkg.PkgPath)
 			}
+		}
+		if importsOnly {
+			findings = append(findings,
+				importsOnlyFindings(pkg, rules, component)...)
+			continue
 		}
 		pass := &analysis.Pass{
 			Analyzer:   a,
@@ -198,13 +221,54 @@ func Analyse(
 				Line:      pos.Line,
 				Column:    pos.Column,
 				Message:   v.Message,
-				Severity:  string(severityOf(v.Rule, rules.Config)),
+				Severity:  string(rules.SeverityFor(cmp(v.Component, component), v.Rule)),
 			})
 		}
 	}
 	sort.Strings(unclassified)
 	findings = append(findings, coverage(rules, matched, unclassified, wholeModule)...)
 	return findings, nil
+}
+
+// importsOnlyFindings applies the import rule from syntax alone.
+func importsOnlyFindings(
+	pkg *packages.Package,
+	rules *analyzer.Rules,
+	component string,
+) []report.Finding {
+	var out []report.Finding
+	for _, f := range pkg.Syntax {
+		for _, spec := range f.Imports {
+			path, err := strconv.Unquote(spec.Path.Value)
+			if err != nil {
+				continue
+			}
+			verdict := rules.Resolver.CheckImport(component, path)
+			if verdict == config.Allowed {
+				continue
+			}
+			pos := pkg.Fset.Position(spec.Pos())
+			if rules.Excluded(pkg.PkgPath) {
+				continue
+			}
+			suffix := ""
+			if verdict == config.Denied {
+				suffix = " (denied)"
+			}
+			out = append(out, report.Finding{
+				Rule:      analyzer.RuleImports,
+				Component: component,
+				Target:    path,
+				File:      pos.Filename,
+				Line:      pos.Line,
+				Column:    pos.Column,
+				Message: component + " may not import " +
+					rules.Resolver.Describe(path) + suffix,
+				Severity: string(rules.SeverityFor(component, analyzer.RuleImports)),
+			})
+		}
+	}
+	return out
 }
 
 // cmp prefers a non-empty value, so a violation that knows its own component wins.
