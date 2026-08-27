@@ -182,7 +182,22 @@ func discover(pass *analysis.Pass, archPath, configPath string) (*Rules, error) 
 //
 // configPath may be empty, in which case arch.config.yaml is looked for beside arch.yaml
 // and its absence means the defaults.
+//
+// Equivalent to LoadFrom with an empty working directory.
 func Load(archPath, configPath string) (*Rules, error) {
+	return LoadFrom(archPath, configPath, "")
+}
+
+// LoadFrom is Load, told which directory is being analysed.
+//
+// The distinction only matters when arch.yaml lives outside the module, which is the whole
+// point of allowing it: one architecture shared across repositories, or a config handed in
+// by CI. Resolving go.mod relative to the *config file* meant `--arch /tmp/shared.yaml`
+// searched upward from /tmp and failed, so the flag was unusable for exactly the cases it
+// existed for. The module is a property of the code under analysis, so the working
+// directory is searched first, and the config's own directory only as a fallback — which
+// is what keeps the ordinary case, where they are the same place, working unchanged.
+func LoadFrom(archPath, configPath, workDir string) (*Rules, error) {
 	arch, err := config.ParseArch(archPath)
 	if err != nil {
 		return nil, err
@@ -191,14 +206,25 @@ func Load(archPath, configPath string) (*Rules, error) {
 	root := filepath.Dir(archPath)
 	module := arch.Module
 	if module == "" {
-		goMod, ok := findUp(root, "go.mod")
-		if !ok {
-			return nil, fmt.Errorf(
-				"%s: no `module:` and no go.mod found above it — one of the two has to say",
-				archPath)
+		var searched []string
+		for _, dir := range []string{workDir, root} {
+			if dir == "" {
+				continue
+			}
+			searched = append(searched, dir)
+			goMod, ok := findUp(dir, "go.mod")
+			if !ok {
+				continue
+			}
+			if module, err = config.ModulePath(goMod); err != nil {
+				return nil, err
+			}
+			break
 		}
-		if module, err = config.ModulePath(goMod); err != nil {
-			return nil, err
+		if module == "" {
+			return nil, fmt.Errorf(
+				"%s: no `module:` and no go.mod found above %s — set `module:` in arch.yaml",
+				archPath, strings.Join(searched, " or "))
 		}
 	}
 

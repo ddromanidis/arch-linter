@@ -145,11 +145,19 @@ func writeSARIF(w io.Writer, findings []Finding, root string) error {
 			Region           region   `json:"region"`
 		} `json:"physicalLocation"`
 	}
+	// Every field is tagged, including the nested one. An untagged `Text string` marshals
+	// as "Text", and SARIF requires "text" — GitHub code scanning then ingests the
+	// document with no message on any result, reports nothing, and goes green. Go's
+	// unmarshaller is case-insensitive, so a round-trip test does not catch it either;
+	// only asserting on the raw bytes does.
+	type message struct {
+		Text string `json:"text"`
+	}
 	type result struct {
-		RuleID    string                `json:"ruleId"`
-		Level     string                `json:"level"`
-		Message   struct{ Text string } `json:"message"`
-		Locations []location            `json:"locations"`
+		RuleID    string     `json:"ruleId"`
+		Level     string     `json:"level"`
+		Message   message    `json:"message"`
+		Locations []location `json:"locations"`
 	}
 
 	results := make([]result, 0, len(findings))

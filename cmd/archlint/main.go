@@ -144,7 +144,7 @@ func load() (*analyzer.Rules, string, error) {
 		}
 		path = found
 	}
-	rules, err := analyzer.Load(path, configPath)
+	rules, err := analyzer.LoadFrom(path, configPath, wd)
 	if err != nil {
 		return nil, wd, err
 	}

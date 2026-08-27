@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -97,4 +98,30 @@ func TestSkipPackage(t *testing.T) {
 // Waivers: what they suppress, and what they must not.
 func TestWaivers(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), New(rulesFor(t)), "shop/internal/waived")
+}
+
+// An arch.yaml outside the module must still find go.mod, or `--arch` cannot serve the
+// case it exists for: one architecture shared across repositories, or handed in by CI.
+func TestLoadFromResolvesModuleFromTheWorkingDirectory(t *testing.T) {
+	// A config with no `module:`, deliberately far from any go.mod.
+	shared := filepath.Join(t.TempDir(), "shared.yaml")
+	if err := os.WriteFile(shared, []byte(
+		"version: 1\ncomponents:\n  all:\n    path: ./...\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Resolving from the config's own directory finds nothing, and used to be all it did.
+	if _, err := Load(shared, ""); err == nil {
+		t.Error("a config with no module and no neighbouring go.mod should fail on its own")
+	}
+
+	// Resolving from the module under analysis works.
+	workDir := filepath.Join(analysistest.TestData(), "src", "shop")
+	rules, err := LoadFrom(shared, "", workDir)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if got := rules.Resolver.Module(); got != "shop" {
+		t.Errorf("module = %q, want shop — read from the analysed module's go.mod", got)
+	}
 }
