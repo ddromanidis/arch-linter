@@ -74,6 +74,12 @@ func TestPathsAreRelativeEverywhere(t *testing.T) {
 		if !strings.Contains(out, "internal/app/a.go") {
 			t.Errorf("%s: relative path missing:\n%s", format, out)
 		}
+		// Forward slashes on every platform. A SARIF uri is a URI and a GitHub
+		// workflow command's file= is matched against forward-slash paths, so a
+		// backslash makes the annotation silently not appear.
+		if strings.Contains(out, `\\`) {
+			t.Errorf("%s: backslash separator in output:\n%s", format, out)
+		}
 	}
 }
 

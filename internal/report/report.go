@@ -194,12 +194,19 @@ func writeSARIF(w io.Writer, findings []Finding, root string) error {
 
 // rel shortens absolute paths against the project root, because a wall of
 // /Users/you/src/... prefixes is noise in every one of these formats.
+//
+// Always forward slashes, including on Windows. Two of these formats require it: a SARIF
+// artifactLocation.uri is a URI, and a GitHub workflow command's file= is matched against
+// paths git reports with forward slashes — a backslash in either is silently not a path,
+// so the annotation simply never appears. Emitting the same separator everywhere also
+// means output does not change shape by platform, which is what a golden test and a
+// diffed CI log both depend on.
 func rel(root, file string) string {
 	if root == "" {
-		return file
+		return filepath.ToSlash(file)
 	}
 	if r, err := filepath.Rel(root, file); err == nil && !strings.HasPrefix(r, "..") {
-		return r
+		return filepath.ToSlash(r)
 	}
-	return file
+	return filepath.ToSlash(file)
 }
