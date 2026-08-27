@@ -14,6 +14,7 @@ import (
 
 	"github.com/ddromanidis/arch-linter/analyzer"
 	"github.com/ddromanidis/arch-linter/config"
+	"github.com/ddromanidis/arch-linter/internal/cache"
 	"github.com/ddromanidis/arch-linter/internal/report"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
@@ -123,6 +124,7 @@ func Analyse(
 	wholeModule bool,
 	tags []string,
 	importsOnly bool,
+	c *cache.Cache,
 ) ([]report.Finding, error) {
 	// Import rules need no types at all: a file's import block is the whole answer, and
 	// syntax gives it. Skipping the type checker is the difference between ~1.6s and
@@ -141,29 +143,26 @@ func Analyse(
 	if len(tags) > 0 {
 		cfg.BuildFlags = []string{"-tags=" + strings.Join(tags, ",")}
 	}
-	pkgs, err := packages.Load(cfg, patterns...)
+	// Two phases when caching, one when not.
+	//
+	// The cost of a run is the type checking, not the analysis, so a cache that only skips
+	// the analysis saves nothing — which is exactly what a first attempt at this did. The
+	// load itself has to be skipped, and that means learning the package graph cheaply
+	// first, deciding what changed, and then type-checking only that.
+	// Without a cache there is nothing to decide, so the first load is the only load and
+	// must carry types. Loading the cheap graph in that case produced packages with no
+	// syntax, every one of which was then skipped — a run that analysed nothing and said
+	// so by reporting nothing.
+	phase := "full"
+	if c != nil {
+		phase = "graph"
+	}
+	graph, err := load(cfg, patterns, phase)
 	if err != nil {
-		return nil, fmt.Errorf("loading packages: %w", err)
+		return nil, err
 	}
-
-	// Type errors mean the type-checked answers would be wrong, and a leak check on
-	// half-resolved types is exactly the kind of quietly-wrong result this tool exists to
-	// avoid. Say so rather than reporting against them.
-	var loadErrs []string
-	packages.Visit(pkgs, nil, func(p *packages.Package) {
-		for _, e := range p.Errors {
-			loadErrs = append(loadErrs, e.Error())
-		}
-	})
-	if importsOnly {
-		// Without type information a type error is not detectable and not relevant: the
-		// import block parses regardless, which is part of why this mode is useful on a
-		// tree that does not build yet.
-		loadErrs = nil
-	}
-	if len(loadErrs) > 0 {
-		return nil, fmt.Errorf("the packages do not type-check, so the architecture cannot be "+
-			"verified:\n  %s", strings.Join(loadErrs, "\n  "))
+	if err := loadErrors(graph, importsOnly); err != nil {
+		return nil, err
 	}
 
 	a := analyzer.New(rules)
@@ -171,60 +170,72 @@ func Analyse(
 	matched := map[string]bool{}
 	var unclassified []string
 
-	for _, pkg := range pkgs {
+	// Fingerprints cover the import graph, so a package whose dependency changed is
+	// invalidated even though its own files did not move.
+	var prints map[string]string
+	if c != nil {
+		prints = cache.Fingerprints(graphInputs(graph))
+	}
+
+	// Decide what still needs type checking.
+	var stale []string
+	cached := map[string][]report.Finding{}
+	for _, pkg := range graph {
+		component := rules.Resolver.Component(pkg.PkgPath)
+		classify(rules, pkg.PkgPath, component, matched, &unclassified)
+		if component == "" || rules.Excluded(pkg.PkgPath) || len(pkg.CompiledGoFiles) == 0 {
+			continue
+		}
+		if c != nil {
+			if hit, ok := c.Lookup(pkg.PkgPath, prints[pkg.PkgPath]); ok {
+				cached[pkg.PkgPath] = hit
+				continue
+			}
+		}
+		stale = append(stale, pkg.PkgPath)
+	}
+	for _, f := range cached {
+		findings = append(findings, f...)
+	}
+
+	// Phase two: full types, for the packages that need them.
+	var typed []*packages.Package
+	switch {
+	case c == nil:
+		typed = graph // the single-phase path already loaded with full types
+	case len(stale) > 0:
+		if typed, err = load(cfg, stale, "full"); err != nil {
+			return nil, err
+		}
+		if err := loadErrors(typed, importsOnly); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, pkg := range typed {
 		if len(pkg.Syntax) == 0 {
 			continue
 		}
 		component := rules.Resolver.Component(pkg.PkgPath)
-		switch {
-		case component != "":
-			matched[component] = true
-		case !rules.Excluded(pkg.PkgPath):
-			// Only packages inside this module. Dependencies are nobody's component and
-			// reporting them would be absurd.
-			if mod := rules.Resolver.Module(); mod != "" &&
-				(pkg.PkgPath == mod || strings.HasPrefix(pkg.PkgPath, mod+"/")) {
-				unclassified = append(unclassified, pkg.PkgPath)
-			}
-		}
-		if importsOnly {
-			findings = append(findings,
-				importsOnlyFindings(pkg, rules, component)...)
+		if component == "" || rules.Excluded(pkg.PkgPath) {
 			continue
 		}
-		pass := &analysis.Pass{
-			Analyzer:   a,
-			Fset:       pkg.Fset,
-			Files:      pkg.Syntax,
-			Pkg:        pkg.Types,
-			TypesInfo:  pkg.TypesInfo,
-			TypesSizes: pkg.TypesSizes,
-			ResultOf:   map[*analysis.Analyzer]any{},
-			// Discarded on purpose. Diagnostics exist for go vet and golangci-lint, which
-			// understand nothing else; this driver reads the structured result instead, so
-			// that a baseline can be keyed on the package at fault rather than on the
-			// wording of a sentence.
-			Report: func(analysis.Diagnostic) {},
+		if importsOnly {
+			findings = append(findings, importsOnlyFindings(pkg, rules, component)...)
+			continue
 		}
-		res, err := a.Run(pass)
+		produced, err := analysePackage(a, pkg, rules, component)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", pkg.PkgPath, err)
+			return nil, err
 		}
-		violations, _ := res.([]analyzer.Violation)
-		for _, v := range violations {
-			pos := pkg.Fset.Position(v.Pos)
-			findings = append(findings, report.Finding{
-				Rule:      v.Rule,
-				Component: cmp(v.Component, component),
-				Target:    v.Target,
-				File:      pos.Filename,
-				Line:      pos.Line,
-				Column:    pos.Column,
-				Message:   v.Message,
-				Severity:  string(rules.SeverityFor(cmp(v.Component, component), v.Rule)),
-			})
+		findings = append(findings, produced...)
+		if c != nil {
+			// Stored even when empty: "this package is clean" is exactly the answer worth
+			// not recomputing.
+			c.Store(pkg.PkgPath, prints[pkg.PkgPath], produced)
 		}
 	}
+
 	sort.Strings(unclassified)
 	findings = append(findings, coverage(rules, matched, unclassified, wholeModule)...)
 	return findings, nil
@@ -291,4 +302,128 @@ func severityOf(category string, cfg *config.Config) config.Severity {
 		return cfg.Severity.Cycles
 	}
 	return cfg.Severity.Exports
+}
+
+// GraphMode is enough to learn what packages exist, what files they are made of and what
+// they import — without type checking, which is the expensive part.
+const GraphMode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+	packages.NeedImports | packages.NeedModule
+
+// load runs the go tool over patterns. kind "full" asks for type information; anything
+// else asks only for the graph.
+func load(base *packages.Config, patterns []string, kind string) ([]*packages.Package, error) {
+	cfg := *base
+	if kind != "full" && base.Mode == Mode {
+		cfg.Mode = GraphMode
+	}
+	pkgs, err := packages.Load(&cfg, patterns...)
+	if err != nil {
+		return nil, fmt.Errorf("loading packages: %w", err)
+	}
+	return pkgs, nil
+}
+
+// loadErrors refuses to analyse code that does not type-check.
+//
+// Deciding whether a signature leaks means resolving what its types are, and a
+// half-resolved answer is exactly the quietly-wrong result this tool exists to avoid.
+func loadErrors(pkgs []*packages.Package, importsOnly bool) error {
+	if importsOnly {
+		// Without type information a type error is neither detectable nor relevant: the
+		// import block parses regardless, which is part of why this mode is useful on a
+		// tree that does not build yet.
+		return nil
+	}
+	var msgs []string
+	packages.Visit(pkgs, nil, func(p *packages.Package) {
+		for _, e := range p.Errors {
+			msgs = append(msgs, e.Error())
+		}
+	})
+	if len(msgs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("the packages do not type-check, so the architecture cannot be "+
+		"verified:\n  %s", strings.Join(msgs, "\n  "))
+}
+
+// graphInputs adapts loaded packages to what fingerprinting needs.
+func graphInputs(pkgs []*packages.Package) []cache.Package {
+	out := make([]cache.Package, 0, len(pkgs))
+	for _, pkg := range pkgs {
+		deps := make([]string, 0, len(pkg.Imports))
+		for dep := range pkg.Imports {
+			deps = append(deps, dep)
+		}
+		out = append(out, cache.Package{
+			ImportPath: pkg.PkgPath,
+			Files:      pkg.CompiledGoFiles,
+			Imports:    deps,
+		})
+	}
+	return out
+}
+
+// classify records which components were seen and which packages nothing claimed.
+func classify(
+	rules *analyzer.Rules,
+	pkgPath, component string,
+	matched map[string]bool,
+	unclassified *[]string,
+) {
+	switch {
+	case component != "":
+		matched[component] = true
+	case !rules.Excluded(pkgPath):
+		// Only packages inside this module. Dependencies are nobody's component and
+		// reporting them would be absurd.
+		if mod := rules.Resolver.Module(); mod != "" &&
+			(pkgPath == mod || strings.HasPrefix(pkgPath, mod+"/")) {
+			*unclassified = append(*unclassified, pkgPath)
+		}
+	}
+}
+
+// analysePackage runs the analyzer over one package and returns its findings.
+func analysePackage(
+	a *analysis.Analyzer,
+	pkg *packages.Package,
+	rules *analyzer.Rules,
+	component string,
+) ([]report.Finding, error) {
+	pass := &analysis.Pass{
+		Analyzer:   a,
+		Fset:       pkg.Fset,
+		Files:      pkg.Syntax,
+		Pkg:        pkg.Types,
+		TypesInfo:  pkg.TypesInfo,
+		TypesSizes: pkg.TypesSizes,
+		ResultOf:   map[*analysis.Analyzer]any{},
+		// Discarded on purpose. Diagnostics exist for go vet and golangci-lint, which
+		// understand nothing else; this driver reads the structured result instead, so
+		// that a baseline can be keyed on the package at fault rather than on the
+		// wording of a sentence.
+		Report: func(analysis.Diagnostic) {},
+	}
+	res, err := a.Run(pass)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", pkg.PkgPath, err)
+	}
+	violations, _ := res.([]analyzer.Violation)
+
+	out := make([]report.Finding, 0, len(violations))
+	for _, v := range violations {
+		pos := pkg.Fset.Position(v.Pos)
+		out = append(out, report.Finding{
+			Rule:      v.Rule,
+			Component: cmp(v.Component, component),
+			Target:    v.Target,
+			File:      pos.Filename,
+			Line:      pos.Line,
+			Column:    pos.Column,
+			Message:   v.Message,
+			Severity:  string(rules.SeverityFor(cmp(v.Component, component), v.Rule)),
+		})
+	}
+	return out, nil
 }

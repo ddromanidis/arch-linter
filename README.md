@@ -372,6 +372,29 @@ archlint ./...                    # 1.78s, both rules
 Fast enough for a hook, with the full analysis in CI. It also works on a tree that does not
 compile yet, since the import block parses regardless.
 
+### Caching
+
+Results are cached per package, so a second run re-analyses only what changed:
+
+```sh
+archlint ./...                  # 2.0s cold, 0.41s warm on a 161-package module
+archlint --cache-stats ./...    # cache: 160 reused, 0 analysed
+archlint --no-cache ./...       # 1.66s — re-analyse everything
+```
+
+The saving is in the type checking, not the analysis, so the load itself is what gets
+skipped: the package graph is read cheaply first, fingerprints decide what is stale, and
+only stale packages are type-checked.
+
+A fingerprint covers **the import graph**, not just a package's own files. `func F()
+other.T` is a leak or not depending on what `other.T` is, so a change in a dependency
+changes this package's answer without touching a byte of it. Change anything a package
+transitively depends on and its entry is invalidated. Both YAML files, the build tags and
+the tool's own version are in the key too, so a stale cache cannot survive a rule change
+or an upgrade.
+
+Cached in your user cache directory, not the repository, so there is nothing to gitignore.
+
 ### Build tags
 
 `--tags` is passed through to the loader. A repository built two ways — a control plane and

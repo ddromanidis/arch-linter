@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 
 	"github.com/ddromanidis/arch-linter/analyzer"
 	"github.com/ddromanidis/arch-linter/config"
 	"github.com/ddromanidis/arch-linter/internal/baseline"
+	"github.com/ddromanidis/arch-linter/internal/cache"
 	"github.com/ddromanidis/arch-linter/internal/diagram"
 	"github.com/ddromanidis/arch-linter/internal/report"
 	"github.com/ddromanidis/arch-linter/internal/run"
@@ -20,8 +22,26 @@ import (
 	"golang.org/x/term"
 )
 
-// version is overwritten at build time by the release process.
+// version is stamped by the release build; `go install` provides its own.
 var version = "dev"
+
+// resolveVersion prefers the linker-stamped value and falls back to the module version the
+// go command records.
+//
+// Without the fallback, `go install ...@v0.1.0` reports "dev", because ldflags are a
+// property of how goreleaser builds and `go install` does not know about them. A binary
+// that cannot tell you which release it is makes every bug report start with a guess.
+func resolveVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v := info.Main.Version; v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return version
+}
 
 // Flags shared by every subcommand that has to find the architecture.
 var (
@@ -32,6 +52,8 @@ var (
 	buildTags    string
 	preset       string
 	importsOnly  bool
+	noCache      bool
+	cacheStats   bool
 )
 
 func main() {
@@ -60,7 +82,7 @@ working directory; tool settings come from arch.config.yaml beside it, if presen
 Exit status is 0 when clean or only warnings, 1 when something errored, and 2 when the
 tool could not run at all — bad config, or code that does not compile.`,
 		Args:          cobra.ArbitraryArgs,
-		Version:       version,
+		Version:       resolveVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: false,
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -76,6 +98,10 @@ tool could not run at all — bad config, or code that does not compile.`,
 	pf.StringVar(&buildTags, "tags", "", "comma-separated build tags, as `go build -tags`")
 	cmd.Flags().BoolVar(&importsOnly, "imports-only", false,
 		"skip type checking: import rules only, fast enough for a pre-commit hook")
+	cmd.Flags().BoolVar(&noCache, "no-cache", false,
+		"re-analyse everything, ignoring cached results")
+	cmd.Flags().BoolVar(&cacheStats, "cache-stats", false,
+		"report how many packages were reused")
 
 	cmd.AddCommand(baselineCmd(), initCmd(), diagramCmd(), explainCmd())
 	return cmd
@@ -229,12 +255,18 @@ func load() (*analyzer.Rules, string, error) {
 	return rules, wd, nil
 }
 
-// analyse runs both the whole-config checks and the per-package ones.
-func analyse(rules *analyzer.Rules, wd string, args []string) ([]report.Finding, error) {
-	patterns := args
-	if len(patterns) == 0 {
-		patterns = []string{"./..."}
+func argsOrDefault(args []string) []string {
+	if len(args) == 0 {
+		return []string{"./..."}
 	}
+	return args
+}
+
+// analyse runs both the whole-config checks and the per-package ones.
+func analyse(
+	rules *analyzer.Rules, wd string, args []string, c *cache.Cache,
+) ([]report.Finding, error) {
+	patterns := argsOrDefault(args)
 	// Whether a component matching nothing is a mistake or just a narrow run.
 	whole := slices.Contains(patterns, "./...")
 
@@ -243,7 +275,8 @@ func analyse(rules *analyzer.Rules, wd string, args []string) ([]report.Finding,
 	// most want to know the architecture itself is sound.
 	findings := run.Cycles(rules)
 
-	analysed, err := run.Analyse(wd, patterns, rules, whole, splitTags(buildTags), importsOnly)
+	analysed, err := run.Analyse(
+		wd, patterns, rules, whole, splitTags(buildTags), importsOnly, c)
 	if err != nil {
 		if len(findings) > 0 {
 			// Say what was learned before saying what could not be.
@@ -252,6 +285,39 @@ func analyse(rules *analyzer.Rules, wd string, args []string) ([]report.Finding,
 		return nil, err
 	}
 	return append(findings, analysed...), nil
+}
+
+// openCache prepares the result cache, or returns nil when it is switched off.
+//
+// The key covers everything that changes what a run would report: both config files, the
+// build tags, and whether tests are included. A stale cache would be a green run that
+// proves nothing — the worst bug this tool could have — so anything not in the key is a
+// reason not to cache at all.
+func openCache(rules *analyzer.Rules) *cache.Cache {
+	// imports-only produces a different, smaller set of findings from the same inputs.
+	// Sharing a cache between the two modes would let a fast run poison a full one.
+	if noCache || importsOnly {
+		return nil
+	}
+	dir, err := cache.Dir()
+	if err != nil {
+		return nil
+	}
+	archBytes, err := os.ReadFile(rules.ArchPath)
+	if err != nil {
+		return nil
+	}
+	cfgBytes, _ := os.ReadFile(filepath.Join(filepath.Dir(rules.ArchPath), "arch.config.yaml"))
+	if configPath != "" {
+		cfgBytes, _ = os.ReadFile(configPath)
+	}
+	key := cache.Key(
+		string(archBytes),
+		string(cfgBytes),
+		buildTags,
+		fmt.Sprint(rules.Config.IncludeTests),
+	)
+	return cache.Open(dir, rules.Resolver.Module(), resolveVersion(), key)
 }
 
 func splitTags(s string) []string {
@@ -266,9 +332,22 @@ func lint(args []string) error {
 	if err != nil {
 		return err
 	}
-	findings, err := analyse(rules, wd, args)
+	c := openCache(rules)
+	findings, err := analyse(rules, wd, args, c)
 	if err != nil {
 		return err
+	}
+	if c != nil {
+		// Only a whole-module run has seen every package, so only that run may prune the
+		// cache down to what it saw. Saving after `archlint ./internal/app` would throw
+		// away every other package's entry.
+		if slices.Contains(argsOrDefault(args), "./...") {
+			_ = c.Save()
+		}
+		if cacheStats {
+			hits, misses := c.Stats()
+			fmt.Printf("cache: %d reused, %d analysed\n", hits, misses)
+		}
 	}
 	findings = dropDisabled(findings)
 
@@ -318,7 +397,7 @@ func writeBaseline(args []string) error {
 	if err != nil {
 		return err
 	}
-	findings, err := analyse(rules, wd, args)
+	findings, err := analyse(rules, wd, args, openCache(rules))
 	if err != nil {
 		return err
 	}

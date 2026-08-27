@@ -156,3 +156,91 @@ func TestBaselineRoundTripThroughTheCLI(t *testing.T) {
 		t.Errorf("expected the forgiven count to be reported:\n%s", out)
 	}
 }
+
+// A cached run and an uncached one must report exactly the same thing.
+//
+// This is the property the cache lives or dies by, and it is the one that catches the
+// failure that matters: a cache which quietly analyses less. An early version of
+// --no-cache loaded packages without type information and then skipped every one of them,
+// reporting nothing at all — and every other test still passed, because they all went
+// through the cached path.
+func TestCachedAndUncachedRunsAgree(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a binary and shells out")
+	}
+	cli := build(t, "cmd/archlint")
+	dir, err := filepath.Abs(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runJSON := func(extra ...string) []finding {
+		args := append([]string{"--format", "json"}, extra...)
+		cmd := exec.Command(cli, append(args, "./...")...)
+		cmd.Dir = dir
+		out, _ := cmd.Output() // exit 1 is expected: the fixture violates on purpose
+		var got []finding
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("parsing json (%v): %v\n%s", extra, err, out)
+		}
+		return got
+	}
+
+	uncached := runJSON("--no-cache")
+	if len(uncached) == 0 {
+		t.Fatal("the uncached run found nothing, so this test proves nothing")
+	}
+
+	// First cached run populates, second reads back.
+	_ = runJSON()
+	cached := runJSON()
+
+	if len(cached) != len(uncached) {
+		t.Fatalf("cached found %d, uncached %d", len(cached), len(uncached))
+	}
+	for i := range uncached {
+		if cached[i] != uncached[i] {
+			t.Errorf("finding %d differs:\n cached   %+v\n uncached %+v",
+				i, cached[i], uncached[i])
+		}
+	}
+}
+
+// Editing a file must invalidate it, or the cache reports a clean run it has not earned.
+func TestCacheInvalidatesOnEdit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a binary, shells out, and edits a fixture")
+	}
+	cli := build(t, "cmd/archlint")
+	dir, err := filepath.Abs(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	count := func() int {
+		cmd := exec.Command(cli, "--format", "json", "./...")
+		cmd.Dir = dir
+		out, _ := cmd.Output()
+		var got []finding
+		_ = json.Unmarshal(out, &got)
+		return len(got)
+	}
+
+	before := count()
+	if before == 0 {
+		t.Fatal("the fixture should violate on purpose")
+	}
+	_ = count() // warm
+
+	// Add a leak to a package that was clean, and restore it whatever happens.
+	path := filepath.Join(dir, "internal", "domain", "extra_leak.go")
+	body := "package domain\n\nimport \"shop/driver\"\n\nfunc Leak() *driver.DB { return nil }\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(path) })
+
+	if after := count(); after <= before {
+		t.Errorf("added a leak but the count went %d → %d; the cache is stale", before, after)
+	}
+}

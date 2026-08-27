@@ -23,6 +23,12 @@ components:
     imports: [report, gopkg.in/yaml.v3, bytes]
     exports: [report]
 
+  cache:
+    path: internal/cache/...
+    description: "Skips re-analysing packages nothing they depend on has changed."
+    imports: [report, crypto/sha256, encoding/hex]
+    exports: [report]
+
   diagram:
     path: internal/diagram/...
     description: "Renders arch.yaml as a Mermaid graph."
@@ -54,8 +60,10 @@ components:
       - report
       - golang.org/x/tools/go/analysis
       - golang.org/x/tools/go/packages
-    # The driver hands out Rules and a packages.LoadMode, so both are part of its surface.
-    exports: [report, analyzer, golang.org/x/tools/go/packages]
+      - cache
+    # The driver hands out Rules, a packages.LoadMode and a cache, so all three are part
+    # of its surface.
+    exports: [report, analyzer, cache, golang.org/x/tools/go/packages]
 
   cli:
     path: cmd/...
@@ -66,8 +74,10 @@ components:
       - report
       - driver
       - baseline
+      - cache
       - diagram
       - scaffold
+      - runtime/debug
       - golang.org/x/term
       - github.com/spf13/cobra
       - slices
